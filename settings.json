@@ -1,0 +1,43 @@
+{
+  "volume": 0.41,
+  "bindings": {
+    "map": {
+      "Down": {
+        "Keyboard": "S"
+      },
+      "Left": {
+        "Keyboard": "A"
+      },
+      "X": {
+        "GamepadButton": "RightTrigger"
+      },
+      "R": {
+        "GamepadButton": "RightTrigger2"
+      },
+      "Y": {
+        "GamepadButton": "South"
+      },
+      "Select": {
+        "GamepadButton": "North"
+      },
+      "B": {
+        "Keyboard": "J"
+      },
+      "A": {
+        "GamepadButton": "LeftTrigger"
+      },
+      "Up": {
+        "Keyboard": "W"
+      },
+      "L": {
+        "Keyboard": "I"
+      },
+      "Right": {
+        "Keyboard": "D"
+      },
+      "Start": {
+        "Keyboard": "Enter"
+      }
+    }
+  }
+}
