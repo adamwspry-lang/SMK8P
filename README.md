@@ -12,7 +12,7 @@ Grab the latest release for your platform from the
 [Releases page](../../releases):
 
 - **Windows** — `SMK8P-windows-x86_64.zip`
-- **macOS** — `SMK8P-macos-x86_64.zip`
+- **macOS** — `SMK8P-macos-x86_64.zip/SMK8P-macos-arm64.zip`
 - **Linux** — `SMK8P-linux-x86_64.zip`
 
 Unzip it anywhere and run the app inside — no installer, no admin rights
