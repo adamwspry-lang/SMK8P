@@ -18,8 +18,8 @@ jobs:
             target: x86_64-pc-windows-msvc
             asset_name: SMK8P-windows-x86_64.zip
           - os: macos-latest
-            target: x86_64-apple-darwin
-            asset_name: SMK8P-macos-x86_64.zip
+            target: aarch64-apple-darwin
+            asset_name: SMK8P-macos-arm64.zip
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             asset_name: SMK8P-linux-x86_64.zip
@@ -73,7 +73,9 @@ jobs:
             cp -R "patches" "$APP/Contents/MacOS/patches"
           fi
           cd stage && zip -r "../${{ matrix.asset_name }}" "SMK8P.app"
-
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            asset_name: SMK8P-macos-arm64.zip
       - name: Package (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: |
