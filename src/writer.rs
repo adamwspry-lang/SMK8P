@@ -419,7 +419,7 @@ impl SequenceGate {
 
     pub fn accept(&mut self, server_slot: wram::ServerSlot, sequence: u16) -> bool {
         match self.last_seen.get(&server_slot) {
-            Some(&last) if sequence <= last => false,
+            Some(&last) if (sequence.wrapping_sub(last) as i16) <= 0 => false,
             _ => {
                 self.last_seen.insert(server_slot, sequence);
                 true
@@ -465,6 +465,7 @@ impl RacerMirrorSocket {
 
     pub fn reset_for_new_race(&mut self) {
         self.received_this_race.clear();
+        self.sequence_gate = SequenceGate::new();
     }
 
     pub fn hide_pending_remote_slots(&mut self, ram: &mut [u8], known_remotes: &[(wram::ServerSlot, u8)]) {

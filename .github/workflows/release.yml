@@ -51,9 +51,6 @@ jobs:
           New-Item -ItemType Directory -Path "$stage/cores/snes9x-libretro" -Force
           Copy-Item "cores/snes9x-libretro/snes9x_libretro.dll" "$stage/cores/snes9x-libretro/snes9x_libretro.dll"
 
-          if (Test-Path "patches") {
-            Copy-Item -Recurse "patches" "$stage/patches"
-          }
           Compress-Archive -Path $stage -DestinationPath ${{ matrix.asset_name }}
 
       - name: Package (macOS)
@@ -69,9 +66,6 @@ jobs:
           mkdir -p "$APP/Contents/MacOS/cores/snes9x-libretro"
           cp "cores/snes9x-libretro/snes9x_libretro.dylib" "$APP/Contents/MacOS/cores/snes9x-libretro/snes9x_libretro.dylib"
 
-          if [ -d "patches" ]; then
-            cp -R "patches" "$APP/Contents/MacOS/patches"
-          fi
           cd stage && zip -r "../${{ matrix.asset_name }}" "SMK8P.app"
 
       - name: Package (Linux)
@@ -84,9 +78,6 @@ jobs:
           mkdir -p "$STAGE/cores/snes9x-libretro"
           cp "cores/snes9x-libretro/snes9x_libretro.so" "$STAGE/cores/snes9x-libretro/snes9x_libretro.so"
 
-          if [ -d "patches" ]; then
-            cp -R "patches" "$STAGE/patches"
-          fi
           cd stage && zip -r "../${{ matrix.asset_name }}" "SMK8P"
 
       - uses: actions/upload-artifact@v4
