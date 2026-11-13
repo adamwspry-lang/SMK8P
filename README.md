@@ -23,6 +23,16 @@ needed.
 > app → **Open** → **Open** again to bypass it (you only need to do this
 > once).
 
+> **macOS users:** since this build isn't signed/notarized yet, opening it
+> may show a warning that the app "is damaged and can't be opened." This
+> just means it's unsigned, not that anything is actually wrong. Fix it by
+> running this once in Terminal:
+> ```sh
+> xattr -cr /path/to/SMK8P.app
+> ```
+> (replace the path with wherever you downloaded it, e.g. `~/Downloads/SMK8P.app`)
+> Then open it normally.
+
 ## First run
 
 1. Launch SMK8P.
