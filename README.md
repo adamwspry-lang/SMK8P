@@ -18,11 +18,6 @@ Grab the latest release for your platform from the
 Unzip it anywhere and run the app inside — no installer, no admin rights
 needed.
 
-> **macOS users:** since this build isn't signed/notarized yet, macOS will
-> show an "unidentified developer" warning on first launch. Right-click the
-> app → **Open** → **Open** again to bypass it (you only need to do this
-> once).
-
 > **macOS users:** since this build isn't signed/notarized yet, opening it
 > may show a warning that the app "is damaged and can't be opened." This
 > just means it's unsigned, not that anything is actually wrong. Fix it by
