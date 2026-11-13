@@ -275,23 +275,14 @@ const RACE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(220);
 
 struct GameFlowWatcher {
     prev_gamemode: u8,
-    
     prev_countdown_hold: u8,
-    
     prev_current_lap: u8,
-    
     prev_lakitu_script_ptr: u16,
-    
     has_raced: bool,
-    
     has_readied_this_select: bool,
-    
     pub countdown_hold_fired: bool,
-    
     pub race_started_fired: bool,
-    
     pub entered_race_edge: bool,
-    
     pub should_broadcast: bool,
 }
 
@@ -301,7 +292,6 @@ impl GameFlowWatcher {
             prev_gamemode: wram::GAMEMODE_NONE,
             prev_countdown_hold: 0,
             prev_current_lap: 0,
-            
             prev_lakitu_script_ptr: 0,
             has_raced: false,
             has_readied_this_select: false,
@@ -325,9 +315,8 @@ impl GameFlowWatcher {
         self.race_started_fired = false;
 
         let local_lap_addr = wram::racer_offset(wram::LOCAL_KART_SLOT) + wram::CURRENT_LAP_OFFSET;
-        
         let local_rank_addr = wram::racer_offset(wram::LOCAL_KART_SLOT) + wram::CURRENT_RANK_OFFSET;
-        
+
         if ram.len() <= wram::GAMEMODE_ADDR
             || ram.len() <= wram::COUNTDOWN_HOLD_ADDR
             || ram.len() <= wram::READY_SIGNAL_ADDR
@@ -363,16 +352,13 @@ impl GameFlowWatcher {
                 wram::GAMEMODE_IN_RACE => {
                     self.has_raced = true;
                     self.entered_race_edge = true;
-                    
                     self.prev_current_lap = 0xFF;
-                    
                     self.prev_lakitu_script_ptr = 0;
                 }
                 wram::GAMEMODE_TITLE => {
                     if self.has_raced {
                         out.push(net::Request::LeaveRoom);
                     }
-                    
                     self.has_raced = false;
                 }
                 _ => {}
@@ -405,7 +391,6 @@ impl GameFlowWatcher {
         let finished_edge =
             current_lap == wram::FINISHED_LAP_VALUE && self.prev_current_lap != wram::FINISHED_LAP_VALUE;
         if finished_edge {
-            
             let rank_raw = u16::from_le_bytes([ram[local_rank_addr], ram[local_rank_addr + 1]]);
             let position = (rank_raw / 2 + 1).clamp(1, wram::NUM_KART_SLOTS as u16) as u8;
             eprintln!(
@@ -442,13 +427,11 @@ impl GameFlowWatcher {
 
 struct AppState {
     emu: Emulator,
-    
     framebuffer_argb: Vec<u32>,
     framebuffer_rgba8: Vec<u8>,
     frame_dims: (usize, usize),
     texture: Option<egui::TextureHandle>,
     lobby: LobbyApp,
-    
     audio: Option<AudioOutput>,
 
     last_tick: std::time::Instant,
@@ -456,7 +439,6 @@ struct AppState {
 
     settings: Settings,
     settings_window: SettingsWindow,
-    
     gilrs: Option<Gilrs>,
 
     fps_frame_count: u32,
@@ -464,40 +446,29 @@ struct AppState {
     current_fps: f64,
 
     game_flow: GameFlowWatcher,
-    
     is_host: bool,
 
     racer_mirror: Option<writer::RacerMirrorSocket>,
-    
     udp_server_addr: String,
-    
     my_server_slot: Option<wram::ServerSlot>,
-    
     slot_map: wram::SlotMap,
-    
     known_start_pos: std::collections::HashMap<wram::ServerSlot, u8>,
 
     pending_start_pos: Option<u8>,
-
     pending_track_index: Option<u8>,
-    
     track_index_injected: bool,
 
     auto_finisher: writer::AutoFinisher,
-
     race_start_time: Option<std::time::Instant>,
 
     awaiting_fold_in: bool,
-    
     room_racing: bool,
 
     this_race_human_slots: Vec<u8>,
 }
 
 impl AppState {
-    
     fn new(emu: Emulator, lobby: LobbyApp, udp_server_addr: &str) -> Self {
-        
         let sample_rate = emu.get_audio_sample_rate();
         let audio = match AudioOutput::new(sample_rate) {
             Ok(a) => Some(a),
@@ -574,7 +545,6 @@ impl AppState {
             }
             present.insert(slot);
             self.slot_map.assign(slot);
-            
             self.known_start_pos.insert(slot, member.start_pos as u8);
         }
 
@@ -588,7 +558,6 @@ impl AppState {
 }
 
 impl AppState {
-    
     fn ensure_racer_mirror(&mut self, udp_token: &str) {
         if self.racer_mirror.is_some() {
             return;
@@ -631,11 +600,9 @@ impl AppState {
     }
 
     fn handle_server_events_for_wram(&mut self, events: &[ServerEvent]) {
-        
         for event in events {
             match event {
                 ServerEvent::RoomCreated { start_pos, udp_token, .. } => {
-                    
                     self.awaiting_fold_in = *start_pos <= 0;
                     if *start_pos > 0 {
                         self.pending_start_pos = Some(*start_pos as u8);
@@ -644,9 +611,7 @@ impl AppState {
                     self.ensure_racer_mirror(udp_token);
                 }
                 ServerEvent::Joined { start_pos, udp_token, .. } => {
-                    
                     self.awaiting_fold_in = *start_pos <= 0;
-                    
                     if *start_pos > 0 {
                         self.pending_start_pos = Some(*start_pos as u8);
                         self.my_server_slot = Some((*start_pos - 1) as wram::ServerSlot);
@@ -654,36 +619,30 @@ impl AppState {
                     self.ensure_racer_mirror(udp_token);
                 }
                 ServerEvent::FoldedIn { start_pos, next_track } => {
-                    
                     self.awaiting_fold_in = false;
                     if *start_pos > 0 {
                         self.pending_start_pos = Some(*start_pos as u8);
                         self.my_server_slot = Some((*start_pos - 1) as wram::ServerSlot);
                     }
-                    
                     if !self.track_index_injected {
                         self.pending_track_index = Some(*next_track as u8);
                     }
                 }
                 ServerEvent::RoomState { active, pending, status, next_track, .. } => {
                     self.room_racing = status == "racing";
-                    
                     if self.room_racing && !self.track_index_injected && self.pending_track_index.is_none() {
                         self.pending_track_index = Some(*next_track as u8);
                     }
                     self.rebuild_slot_map(active, pending);
                 }
                 ServerEvent::RaceStart { slot, start_pos, .. } => {
-                    
                     if self.my_server_slot.is_none() {
                         self.my_server_slot = Some(*slot as wram::ServerSlot);
                     }
-                    
                     if let Some(sp) = start_pos {
                         self.pending_start_pos = Some(*sp as u8);
                     }
                 }
-                
                 ServerEvent::Left
                 | ServerEvent::Kicked
                 | ServerEvent::RoomClosed { .. }
@@ -704,22 +663,16 @@ impl AppState {
         for event in events {
             match event {
                 ServerEvent::RoomState { status, is_host, all_active_ready, .. } => {
-                    
                     if let Some(host) = is_host {
                         self.is_host = *host;
                     }
-                    
                     let can_enter = match is_host {
                         Some(true) => *all_active_ready,
-                        
                         Some(false) | None => status == "racing" && !self.awaiting_fold_in,
                     };
                     writer::write_mailbox_bit(ram, wram::CAN_ENTER_RACE_BIT, can_enter);
-                    
                     self.lobby.set_mushroom_prompt(can_enter);
-
                 }
-                
                 ServerEvent::Left
                 | ServerEvent::Kicked
                 | ServerEvent::RoomClosed { .. }
@@ -728,9 +681,7 @@ impl AppState {
                     self.lobby.set_mushroom_prompt(false);
                 }
                 ServerEvent::RaceStart { rng_seed, .. } => {
-                    
                     writer::write_rng_seed(ram, *rng_seed as u16);
-                    
                     let before = if wram::MAILBOX_ADDR < ram.len() { Some(ram[wram::MAILBOX_ADDR]) } else { None };
                     writer::write_mailbox_bit(ram, wram::ALL_READY_BIT, true);
                     let after = if wram::MAILBOX_ADDR < ram.len() { Some(ram[wram::MAILBOX_ADDR]) } else { None };
@@ -738,7 +689,6 @@ impl AppState {
                         "RaceStart event: rng_seed={rng_seed:#06x} mailbox before={before:?} after={after:?} (ALL_READY_BIT={:#04x})",
                         wram::ALL_READY_BIT
                     );
-
                     eprintln!("RaceStart event -- starting race timeout clock ({RACE_TIMEOUT:?})");
                     self.race_start_time = Some(std::time::Instant::now());
                 }
@@ -750,7 +700,6 @@ impl AppState {
 
 impl eframe::App for AppState {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        
         if let Some(gilrs) = &mut self.gilrs {
             while gilrs.next_event().is_some() {}
         }
@@ -763,14 +712,13 @@ impl eframe::App for AppState {
         self.last_tick = now;
 
         let frame_duration = std::time::Duration::from_secs_f64(1.0 / TARGET_FPS);
-        
+
         const MAX_CATCHUP_FRAMES: u32 = 4;
         let mut stepped = 0;
         while self.accumulator >= frame_duration && stepped < MAX_CATCHUP_FRAMES {
             self.emu.run([p1, p2]);
 
             if let Some(audio) = &self.audio {
-                
                 let _ = self.emu.peek_audio_sample(|samples| audio.push_samples(samples));
             }
 
@@ -778,7 +726,6 @@ impl eframe::App for AppState {
             stepped += 1;
         }
         if stepped == MAX_CATCHUP_FRAMES {
-            
             self.accumulator = std::time::Duration::ZERO;
         }
 
@@ -794,7 +741,6 @@ impl eframe::App for AppState {
             self.settings_window.toggle();
         }
         let prev_volume = self.settings.volume;
-        
         let settings_before = self.settings.clone();
         self.settings_window.draw(ctx, &mut self.settings, self.gilrs.as_ref());
         if self.settings.volume != prev_volume {
@@ -811,7 +757,6 @@ impl eframe::App for AppState {
             self.framebuffer_argb = vec![0; real_w * real_h];
             self.framebuffer_rgba8 = vec![0; real_w * real_h * 4];
             self.frame_dims = (real_w, real_h);
-            
             self.texture = None;
         }
         let (fb_w, fb_h) = self.frame_dims;
@@ -829,7 +774,6 @@ impl eframe::App for AppState {
                 self.framebuffer_rgba8[o + 1] = g;
                 self.framebuffer_rgba8[o + 2] = b;
                 self.framebuffer_rgba8[o + 3] = if a == 0 { 255 } else { a };
-                
             }
             let image = egui::ColorImage::from_rgba_unmultiplied([fb_w, fb_h], &self.framebuffer_rgba8);
             match &mut self.texture {
@@ -900,7 +844,6 @@ impl eframe::App for AppState {
                 "entered_race_edge fired, pending_start_pos = {:?}",
                 self.pending_start_pos
             );
-            
             self.pending_track_index = None;
             self.track_index_injected = true;
 
@@ -911,9 +854,8 @@ impl eframe::App for AppState {
             self.lobby.set_mushroom_prompt(false);
 
             self.auto_finisher.reset();
-            
             self.race_start_time = None;
-            
+
             if let Some(mirror) = &mut self.racer_mirror {
                 mirror.reset_for_new_race();
             }
@@ -947,11 +889,11 @@ impl eframe::App for AppState {
         if in_race {
             if let (Some(mirror), Some(my_slot)) = (&mut self.racer_mirror, self.my_server_slot) {
                 mirror.poll_and_apply(self.emu.system_ram_mut(), &self.slot_map, my_slot);
-                
+
                 if self.game_flow.should_broadcast {
                     mirror.send_local(self.emu.system_ram_ref(), my_slot);
                 }
-                
+
                 let known_remotes: Vec<(wram::ServerSlot, u8)> = self
                     .slot_map
                     .iter()
@@ -975,12 +917,10 @@ impl eframe::App for AppState {
 
         egui::CentralPanel::default().show(ctx, |ui| {
             if let Some(tex) = &self.texture {
-                
                 let avail = ui.available_size();
                 let native_aspect = fb_w as f32 / fb_h as f32;
-                let mut size = egui::vec2(fb_w as f32 * 2.0, fb_h as f32 * 2.0);
+                let mut size = egui::vec2(fb_w as f32 * self.settings.scale, fb_h as f32 * self.settings.scale);
                 if avail.x < size.x || avail.y < size.y {
-                    
                     let scale = (avail.x / size.x).min(avail.y / size.y);
                     size *= scale;
                 }
@@ -1004,7 +944,7 @@ fn main() {
     } else {
         "snes9x_libretro.so"
     };
-    let core_path = exe_dir().join("cores/snes9x-libretro").join(core_filename);                               
+    let core_path = exe_dir().join("cores/snes9x-libretro").join(core_filename);
     if !core_path.exists() {
         eprintln!("Core not found at {core_path:?}. Check the path in main.rs.");
         std::process::exit(1);

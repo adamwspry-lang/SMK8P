@@ -94,7 +94,6 @@ impl LogicalButton {
 pub enum InputSource {
     Keyboard(egui::Key),
     GamepadButton(Button),
-    
     GamepadAxis { axis: Axis, positive: bool },
 }
 
@@ -161,7 +160,6 @@ pub struct InputBindings {
 }
 
 impl Default for InputBindings {
-    
     fn default() -> Self {
         use egui::Key;
         use LogicalButton::*;
@@ -177,7 +175,6 @@ impl Default for InputBindings {
         map.insert(L, InputSource::Keyboard(Key::Q));
         map.insert(R, InputSource::Keyboard(Key::W));
         map.insert(Start, InputSource::Keyboard(Key::Enter));
-        
         map.insert(Select, InputSource::Keyboard(Key::Backslash));
         Self { map }
     }
@@ -193,16 +190,21 @@ impl InputBindings {
     }
 }
 
+fn default_scale() -> f32 {
+    2.0
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Settings {
-    
     pub volume: f32,
     pub bindings: InputBindings,
+    #[serde(default = "default_scale")]
+    pub scale: f32,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { volume: 1.0, bindings: InputBindings::default() }
+        Self { volume: 1.0, bindings: InputBindings::default(), scale: default_scale() }
     }
 }
 
@@ -259,7 +261,6 @@ impl Settings {
 
 pub struct SettingsWindow {
     pub open: bool,
-    
     rebinding: Option<LogicalButton>,
 }
 
@@ -293,10 +294,13 @@ impl SettingsWindow {
             .resizable(true)
             .default_width(320.0)
             .show(ctx, |ui| {
-                
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     ui.heading("Audio");
                     ui.add(egui::Slider::new(&mut settings.volume, 0.0..=1.0).text("Volume"));
+
+                    ui.separator();
+                    ui.heading("Display");
+                    ui.add(egui::Slider::new(&mut settings.scale, 1.0..=4.0).text("Scale"));
 
                     ui.separator();
                     ui.heading("Input Mapping (Player 1)");
