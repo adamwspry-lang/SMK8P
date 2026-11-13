@@ -33,6 +33,10 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      - name: Install Linux build dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev libasound2-dev
+
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
 
