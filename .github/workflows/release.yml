@@ -20,9 +20,6 @@ jobs:
           - os: macos-latest
             target: aarch64-apple-darwin
             asset_name: SMK8P-macos-arm64.zip
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            asset_name: SMK8P-linux-x86_64.zip
 
     runs-on: ${{ matrix.os }}
 
@@ -32,10 +29,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-
-      - name: Install Linux build dependencies
-        if: matrix.os == 'ubuntu-latest'
-        run: sudo apt-get update && sudo apt-get install -y libudev-dev libasound2-dev libclang-dev clang
 
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
@@ -67,18 +60,6 @@ jobs:
           cp "cores/snes9x-libretro/snes9x_libretro.dylib" "$APP/Contents/MacOS/cores/snes9x-libretro/snes9x_libretro.dylib"
 
           cd stage && zip -r "../${{ matrix.asset_name }}" "SMK8P.app"
-
-      - name: Package (Linux)
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          STAGE="stage/SMK8P"
-          mkdir -p "$STAGE"
-          cp "target/${{ matrix.target }}/release/smk-client" "$STAGE/SMK8P"
-
-          mkdir -p "$STAGE/cores/snes9x-libretro"
-          cp "cores/snes9x-libretro/snes9x_libretro.so" "$STAGE/cores/snes9x-libretro/snes9x_libretro.so"
-
-          cd stage && zip -r "../${{ matrix.asset_name }}" "SMK8P"
 
       - uses: actions/upload-artifact@v4
         with:
