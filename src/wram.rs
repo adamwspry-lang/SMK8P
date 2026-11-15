@@ -14,6 +14,7 @@ pub const GAMEMODE_ADDR: usize = 0x0036;
 
 pub const GAMEMODE_IN_RACE: u8 = 0x02;
 
+#[allow(dead_code)]
 pub const GAMEMODE_TITLE: u8 = 0x04;
 
 pub const GAMEMODE_TRACK_SELECT: u8 = 0x08;
@@ -47,6 +48,9 @@ pub const Z_POSITION_MAX: u16 = 0xFFFF;
 pub const FINISHED_LAP_VALUE: u8 = 0x85;
 
 pub const COUNTDOWN_HOLD_ADDR: usize = 0x0E5A;
+
+pub const PAUSE_MENU_ADDR: usize = 0x0163;
+pub const PAUSE_MENU_OPEN_BIT: u8 = 0x80;
 
 pub const READY_SIGNAL_ADDR: usize = 0x1C30;
 
@@ -237,6 +241,11 @@ mod tests {
     #[test]
     fn gamemode_addr_fits_inside_wram() {
         assert!(GAMEMODE_ADDR < WRAM_SIZE);
+    }
+
+    #[test]
+    fn pause_menu_addr_fits_inside_wram() {
+        assert!(PAUSE_MENU_ADDR < WRAM_SIZE);
     }
 
     #[test]

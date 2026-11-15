@@ -241,7 +241,7 @@ struct GameFlowWatcher {
     prev_countdown_hold: u8,
     prev_current_lap: u8,
     prev_lakitu_script_ptr: u16,
-    has_raced: bool,
+    prev_pause_menu_open: bool,
     has_readied_this_select: bool,
     pub countdown_hold_fired: bool,
     pub race_started_fired: bool,
@@ -256,7 +256,7 @@ impl GameFlowWatcher {
             prev_countdown_hold: 0,
             prev_current_lap: 0,
             prev_lakitu_script_ptr: 0,
-            has_raced: false,
+            prev_pause_menu_open: false,
             has_readied_this_select: false,
             countdown_hold_fired: false,
             race_started_fired: false,
@@ -286,16 +286,18 @@ impl GameFlowWatcher {
             || ram.len() <= local_lap_addr
             || ram.len() <= wram::LAKITU_SCRIPT_PTR_ADDR + 1
             || ram.len() <= local_rank_addr + 1
+            || ram.len() <= wram::PAUSE_MENU_ADDR
         {
             eprintln!(
-                "GameFlowWatcher::poll: WRAM slice too small (len {:#x}) to read gamemode ({:#x}), countdown-hold ack ({:#x}), ready signal ({:#x}), local current-lap ({:#x}), local current-rank ({:#x}), or Lakitu script pointer ({:#x}) -- core may not have WRAM mapped yet",
+                "GameFlowWatcher::poll: WRAM slice too small (len {:#x}) to read gamemode ({:#x}), countdown-hold ack ({:#x}), ready signal ({:#x}), local current-lap ({:#x}), local current-rank ({:#x}), Lakitu script pointer ({:#x}), or pause-menu flag ({:#x}) -- core may not have WRAM mapped yet",
                 ram.len(),
                 wram::GAMEMODE_ADDR,
                 wram::COUNTDOWN_HOLD_ADDR,
                 wram::READY_SIGNAL_ADDR,
                 local_lap_addr,
                 local_rank_addr,
-                wram::LAKITU_SCRIPT_PTR_ADDR
+                wram::LAKITU_SCRIPT_PTR_ADDR,
+                wram::PAUSE_MENU_ADDR
             );
             return out;
         }
@@ -314,22 +316,21 @@ impl GameFlowWatcher {
         }
 
         if gm != wram::GAMEMODE_NONE && gm != self.prev_gamemode {
-            match gm {
-                wram::GAMEMODE_IN_RACE => {
-                    self.has_raced = true;
-                    self.entered_race_edge = true;
-                    self.prev_current_lap = 0xFF;
-                    self.prev_lakitu_script_ptr = 0;
-                }
-                wram::GAMEMODE_TITLE => {
-                    if self.has_raced {
-                        out.push(net::Request::LeaveRoom);
-                    }
-                    self.has_raced = false;
-                }
-                _ => {}
+            if gm == wram::GAMEMODE_IN_RACE {
+                self.entered_race_edge = true;
+                self.prev_current_lap = 0xFF;
+                self.prev_lakitu_script_ptr = 0;
             }
             self.prev_gamemode = gm;
+        }
+
+        let pause_menu_open = ram[wram::PAUSE_MENU_ADDR] & wram::PAUSE_MENU_OPEN_BIT != 0;
+        let pause_menu_opened_edge = pause_menu_open && !self.prev_pause_menu_open;
+        self.prev_pause_menu_open = pause_menu_open;
+
+        if gm == wram::GAMEMODE_IN_RACE && pause_menu_opened_edge {
+            eprintln!("Pause menu opened during race ($7E:0163 bit 0x80 set) -- sending LeaveRoom");
+            out.push(net::Request::LeaveRoom);
         }
 
         let countdown_hold = ram[wram::COUNTDOWN_HOLD_ADDR];
