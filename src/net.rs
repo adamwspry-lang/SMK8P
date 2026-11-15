@@ -24,10 +24,7 @@ struct OutMessage {
     public: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     slot: Option<i32>,
-    
-    #[serde(skip_serializing_if = "Option::is_none")]
-    position: Option<i32>,
-    
+
     #[serde(skip_serializing_if = "Option::is_none")]
     start_track: Option<i32>,
 }
@@ -40,7 +37,6 @@ impl OutMessage {
             name: None,
             public: None,
             slot: None,
-            position: None,
             start_track: None,
         }
     }
@@ -51,13 +47,12 @@ pub enum Request {
     CreateRoom { name: String, public: bool },
     JoinRoom { name: String, code: String },
     ListRooms,
-    
+
     StartRoom { start_track: i32 },
     Ready,
     Kick { slot: i32 },
     LeaveRoom,
-    
-    Finished { position: i32 },
+    Finished,
 }
 
 impl From<Request> for OutMessage {
@@ -84,10 +79,7 @@ impl From<Request> for OutMessage {
                 ..OutMessage::bare("kick")
             },
             Request::LeaveRoom => OutMessage::bare("leave_room"),
-            Request::Finished { position } => OutMessage {
-                position: Some(position),
-                ..OutMessage::bare("finished")
-            },
+            Request::Finished => OutMessage::bare("finished"),
         }
     }
 }
@@ -96,7 +88,7 @@ impl From<Request> for OutMessage {
 struct RoomCreated {
     code: String,
     start_pos: i32,
-    
+
     #[serde(default)]
     udp_token: String,
 }
@@ -104,10 +96,10 @@ struct RoomCreated {
 #[derive(Debug, Clone, Deserialize)]
 struct Joined {
     code: String,
-    
+
     #[serde(default)]
     start_pos: i32,
-    
+
     #[serde(default)]
     udp_token: String,
 }
@@ -115,7 +107,7 @@ struct Joined {
 #[derive(Debug, Clone, Deserialize)]
 struct FoldedIn {
     start_pos: i32,
-    
+
     #[serde(default)]
     next_track: i32,
 }
@@ -128,7 +120,7 @@ struct RoomSummary {
 
 #[derive(Debug, Clone, Deserialize)]
 struct RoomList {
-    
+
     #[serde(default)]
     rooms: Option<Vec<RoomSummary>>,
 }
@@ -138,7 +130,7 @@ pub struct RoomMember {
     pub name: String,
     pub slot: i32,
     pub start_pos: i32,
-    
+
     #[serde(default)]
     pub ready: bool,
 }
@@ -149,11 +141,11 @@ struct RoomState {
     status: String,
     active: Vec<RoomMember>,
     pending: Vec<RoomMember>,
-    
+
     is_host: Option<bool>,
-    
+
     all_active_ready: bool,
-    
+
     #[serde(default)]
     next_track: i32,
 }
@@ -162,7 +154,7 @@ struct RoomState {
 struct RaceStart {
     rng_seed: i32,
     slot: i32,
-    
+
     start_pos: Option<i32>,
 }
 
@@ -181,7 +173,7 @@ struct ErrorMsg {
 pub enum ServerEvent {
     RoomCreated { code: String, start_pos: i32, udp_token: String },
     Joined { code: String, start_pos: i32, udp_token: String },
-    
+
     FoldedIn { start_pos: i32, next_track: i32 },
     RoomList { rooms: Vec<(String, i32)> },
     RoomState {
@@ -198,7 +190,7 @@ pub enum ServerEvent {
     Kicked,
     Left,
     Error { reason: String, message: String },
-    
+
     Disconnected,
 }
 
@@ -289,7 +281,7 @@ pub struct LobbyClient {
 }
 
 impl LobbyClient {
-    
+
     pub fn connect(addr: &str) -> std::io::Result<Self> {
         let sock_addr: SocketAddr = addr
             .to_socket_addrs()?
@@ -325,7 +317,7 @@ impl LobbyClient {
         let out: OutMessage = request.into();
         let mut line = serde_json::to_string(&out).expect("OutMessage always serializes");
         line.push('\n');
-        
+
         match self.stream.write_all(line.as_bytes()) {
             Ok(()) => {
                 eprintln!("net: sent {} bytes: {}", line.len(), line.trim_end());
@@ -350,7 +342,7 @@ fn read_loop(stream: TcpStream, tx: Sender<ServerEvent>) {
         line.clear();
         match reader.read_line(&mut line) {
             Ok(0) => {
-                
+
                 let _ = tx.send(ServerEvent::Disconnected);
                 return;
             }
@@ -361,11 +353,11 @@ fn read_loop(stream: TcpStream, tx: Sender<ServerEvent>) {
                 }
                 if let Some(event) = parse_event(trimmed) {
                     if tx.send(event).is_err() {
-                        
+
                         return;
                     }
                 }
-                
+
             }
             Err(e) => {
                 eprintln!("net: read error, treating as disconnect: {e}");
@@ -387,7 +379,7 @@ mod tests {
         assert!(json.contains(r#""type":"create_room""#));
         assert!(json.contains(r#""name":"ADM""#));
         assert!(json.contains(r#""public":true"#));
-        
+
         assert!(!json.contains("code"));
         assert!(!json.contains("slot"));
     }
@@ -400,10 +392,10 @@ mod tests {
     }
 
     #[test]
-    fn finished_serializes_like_main_go_expects() {
-        let out: OutMessage = Request::Finished { position: 3 }.into();
+    fn finished_serializes_with_no_position_field() {
+        let out: OutMessage = Request::Finished.into();
         let json = serde_json::to_string(&out).unwrap();
-        assert_eq!(json, r#"{"type":"finished","position":3}"#);
+        assert_eq!(json, r#"{"type":"finished"}"#);
     }
 
     #[test]
@@ -425,7 +417,7 @@ mod tests {
 
     #[test]
     fn parses_room_state_with_is_host_absent_once_racing() {
-        
+
         let line = r#"{"type":"room_state","code":"ADM","status":"racing","active":[{"name":"ADM","slot":0,"start_pos":1}],"pending":[],"all_active_ready":true}"#;
         match parse_event(line) {
             Some(ServerEvent::RoomState { is_host, status, all_active_ready, .. }) => {
@@ -439,7 +431,7 @@ mod tests {
 
     #[test]
     fn parses_pending_member_with_unassigned_slot() {
-        
+
         let line = r#"{"type":"room_state","code":"ADM","status":"racing","active":[{"name":"ADM","slot":0,"start_pos":1}],"pending":[{"name":"BOB","slot":-1,"start_pos":2}],"all_active_ready":true}"#;
         match parse_event(line) {
             Some(ServerEvent::RoomState { pending, .. }) => {
@@ -452,7 +444,7 @@ mod tests {
 
     #[test]
     fn parses_joined_without_start_pos_as_pending() {
-        
+
         let line = r#"{"type":"joined","code":"ADM"}"#;
         match parse_event(line) {
             Some(ServerEvent::Joined { code, start_pos, .. }) => {

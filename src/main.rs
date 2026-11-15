@@ -283,24 +283,21 @@ impl GameFlowWatcher {
         self.left_room_fired = false;
 
         let local_lap_addr = wram::racer_offset(wram::LOCAL_KART_SLOT) + wram::CURRENT_LAP_OFFSET;
-        let local_rank_addr = wram::racer_offset(wram::LOCAL_KART_SLOT) + wram::CURRENT_RANK_OFFSET;
 
         if ram.len() <= wram::GAMEMODE_ADDR
             || ram.len() <= wram::COUNTDOWN_HOLD_ADDR
             || ram.len() <= wram::READY_SIGNAL_ADDR
             || ram.len() <= local_lap_addr
             || ram.len() <= wram::LAKITU_SCRIPT_PTR_ADDR + 1
-            || ram.len() <= local_rank_addr + 1
             || ram.len() <= wram::PAUSE_MENU_ADDR
         {
             eprintln!(
-                "GameFlowWatcher::poll: WRAM slice too small (len {:#x}) to read gamemode ({:#x}), countdown-hold ack ({:#x}), ready signal ({:#x}), local current-lap ({:#x}), local current-rank ({:#x}), Lakitu script pointer ({:#x}), or pause-menu flag ({:#x}) -- core may not have WRAM mapped yet",
+                "GameFlowWatcher::poll: WRAM slice too small (len {:#x}) to read gamemode ({:#x}), countdown-hold ack ({:#x}), ready signal ({:#x}), local current-lap ({:#x}), Lakitu script pointer ({:#x}), or pause-menu flag ({:#x}) -- core may not have WRAM mapped yet",
                 ram.len(),
                 wram::GAMEMODE_ADDR,
                 wram::COUNTDOWN_HOLD_ADDR,
                 wram::READY_SIGNAL_ADDR,
                 local_lap_addr,
-                local_rank_addr,
                 wram::LAKITU_SCRIPT_PTR_ADDR,
                 wram::PAUSE_MENU_ADDR
             );
@@ -365,12 +362,8 @@ impl GameFlowWatcher {
         let finished_edge =
             current_lap == wram::FINISHED_LAP_VALUE && self.prev_current_lap != wram::FINISHED_LAP_VALUE;
         if finished_edge {
-            let rank_raw = u16::from_le_bytes([ram[local_rank_addr], ram[local_rank_addr + 1]]);
-            let position = (rank_raw / 2 + 1).clamp(1, wram::NUM_KART_SLOTS as u16) as u8;
-            eprintln!(
-                "Finished edge fired (lap byte == {current_lap:#04x}) -- reporting position {position} (raw rank {rank_raw:#06x})"
-            );
-            out.push(net::Request::Finished { position: position.into() });
+            eprintln!("Finished edge fired (lap byte == {current_lap:#04x}) -- reporting finish to server");
+            out.push(net::Request::Finished);
         }
 
         if gm == wram::GAMEMODE_IN_RACE
