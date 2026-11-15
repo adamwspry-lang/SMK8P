@@ -247,6 +247,8 @@ struct GameFlowWatcher {
     pub race_started_fired: bool,
     pub entered_race_edge: bool,
     pub should_broadcast: bool,
+    pub left_room_fired: bool,
+    pub at_title_screen: bool,
 }
 
 impl GameFlowWatcher {
@@ -262,6 +264,8 @@ impl GameFlowWatcher {
             race_started_fired: false,
             entered_race_edge: false,
             should_broadcast: true,
+            left_room_fired: false,
+            at_title_screen: false,
         }
     }
 
@@ -276,6 +280,7 @@ impl GameFlowWatcher {
         let mut out = Vec::new();
         self.entered_race_edge = false;
         self.race_started_fired = false;
+        self.left_room_fired = false;
 
         let local_lap_addr = wram::racer_offset(wram::LOCAL_KART_SLOT) + wram::CURRENT_LAP_OFFSET;
         let local_rank_addr = wram::racer_offset(wram::LOCAL_KART_SLOT) + wram::CURRENT_RANK_OFFSET;
@@ -303,6 +308,7 @@ impl GameFlowWatcher {
         }
 
         let gm = ram[wram::GAMEMODE_ADDR];
+        self.at_title_screen = gm == wram::GAMEMODE_TITLE;
 
         if joined_this_frame {
             self.has_readied_this_select = false;
@@ -331,6 +337,7 @@ impl GameFlowWatcher {
         if gm == wram::GAMEMODE_IN_RACE && pause_menu_opened_edge {
             eprintln!("Pause menu opened during race ($7E:0163 bit 0x80 set) -- sending LeaveRoom");
             out.push(net::Request::LeaveRoom);
+            self.left_room_fired = true;
         }
 
         let countdown_hold = ram[wram::COUNTDOWN_HOLD_ADDR];
@@ -432,6 +439,8 @@ struct AppState {
     room_racing: bool,
 
     this_race_human_slots: Vec<u8>,
+    awaiting_title_before_rejoin: bool,
+    removed_cpu_originals: std::collections::HashMap<u8, (u16, u16)>,
 }
 
 impl AppState {
@@ -489,6 +498,9 @@ impl AppState {
             awaiting_fold_in: false,
             room_racing: false,
             this_race_human_slots: vec![wram::LOCAL_KART_SLOT],
+
+            awaiting_title_before_rejoin: false,
+            removed_cpu_originals: std::collections::HashMap::new(),
         }
     }
 
@@ -498,10 +510,15 @@ impl AppState {
         slots
     }
 
-    fn rebuild_slot_map(&mut self, active: &[net::RoomMember], pending: &[net::RoomMember]) {
-        let Some(my_slot) = self.my_server_slot else { return };
+    fn rebuild_slot_map(
+        &mut self,
+        active: &[net::RoomMember],
+        pending: &[net::RoomMember],
+    ) -> Vec<(wram::ServerSlot, u8)> {
+        let Some(my_slot) = self.my_server_slot else { return Vec::new() };
 
         let mut present: std::collections::HashSet<wram::ServerSlot> = std::collections::HashSet::new();
+        let mut newly_assigned = Vec::new();
         for member in active.iter().chain(pending.iter()) {
             if member.slot < 0 {
                 continue;
@@ -511,7 +528,12 @@ impl AppState {
                 continue;
             }
             present.insert(slot);
-            self.slot_map.assign(slot);
+            let already_known = self.slot_map.get(slot).is_some();
+            if let Some(kart_slot) = self.slot_map.assign(slot) {
+                if !already_known {
+                    newly_assigned.push((slot, kart_slot));
+                }
+            }
             self.known_start_pos.insert(slot, member.start_pos as u8);
         }
 
@@ -521,6 +543,8 @@ impl AppState {
                 self.known_start_pos.remove(&slot);
             }
         }
+
+        newly_assigned
     }
 }
 
@@ -600,7 +624,20 @@ impl AppState {
                     if self.room_racing && !self.track_index_injected && self.pending_track_index.is_none() {
                         self.pending_track_index = Some(*next_track as u8);
                     }
-                    self.rebuild_slot_map(active, pending);
+                    let newly_assigned = self.rebuild_slot_map(active, pending);
+
+                    for (server_slot, kart_slot) in &newly_assigned {
+                        if let Some(original) = self.removed_cpu_originals.remove(kart_slot) {
+                            eprintln!(
+                                "restoring kart slot {kart_slot} (server_slot {server_slot}) from disabled-CPU state -- player joined between race-entry and race-start"
+                            );
+                            let ram = self.emu.system_ram_mut();
+                            writer::restore_cpu_slot(ram, *kart_slot, original);
+                        }
+                        if !self.this_race_human_slots.contains(kart_slot) {
+                            self.this_race_human_slots.push(*kart_slot);
+                        }
+                    }
 
                     let still_human = self.human_kart_slots();
                     self.this_race_human_slots.retain(|slot| still_human.contains(slot));
@@ -629,6 +666,9 @@ impl AppState {
                     self.known_start_pos.clear();
                     self.racer_mirror = None;
                     self.this_race_human_slots = vec![wram::LOCAL_KART_SLOT];
+                    self.removed_cpu_originals.clear();
+
+                    self.awaiting_title_before_rejoin = true;
                 }
                 _ => {}
             }
@@ -808,6 +848,14 @@ impl eframe::App for AppState {
             self.lobby.send(request);
         }
 
+        if self.game_flow.left_room_fired {
+            self.awaiting_title_before_rejoin = true;
+        }
+        if self.game_flow.at_title_screen {
+            self.awaiting_title_before_rejoin = false;
+        }
+        self.lobby.set_can_join(!self.awaiting_title_before_rejoin);
+
         if self.game_flow.race_started_fired {
             eprintln!("race_started_fired -- clearing ALL_READY_BIT (lap byte hit 0x80)");
             let ram = self.emu.system_ram_mut();
@@ -839,7 +887,7 @@ impl eframe::App for AppState {
             let occupied_kart_slots = self.this_race_human_slots.clone();
             {
                 let ram = self.emu.system_ram_mut();
-                writer::remove_unoccupied_cpus(ram, &occupied_kart_slots);
+                self.removed_cpu_originals = writer::remove_unoccupied_cpus(ram, &occupied_kart_slots);
             }
 
             if let Some(my_start_pos) = self.pending_start_pos.take() {

@@ -171,16 +171,36 @@ fn apply_position_to_slot(ram: &mut [u8], target_kart_slot: u8, desired_start_po
 const REMOVED_FLAG_SET_1: u16 = 0x0000;
 const REMOVED_SCREEN_NUMBER: u16 = 0xFFFF;
 
-fn remove_unoccupied_cpu(ram: &mut [u8], kart_slot: u8) {
+fn remove_unoccupied_cpu(ram: &mut [u8], kart_slot: u8) -> Option<(u16, u16)> {
     let base = wram::racer_offset(kart_slot);
     if base + 0xD4 > ram.len() {
         eprintln!("writer: remove_unoccupied_cpu: kart slot {kart_slot} struct falls outside WRAM, skipping");
-        return;
+        return None;
     }
+    let original_flag = u16::from_le_bytes([ram[base + 0x10], ram[base + 0x11]]);
+    let original_screen = u16::from_le_bytes([ram[base + 0xD2], ram[base + 0xD3]]);
+
     let flag_bytes = REMOVED_FLAG_SET_1.to_le_bytes();
     ram[base + 0x10] = flag_bytes[0];
     ram[base + 0x11] = flag_bytes[1];
     let screen_bytes = REMOVED_SCREEN_NUMBER.to_le_bytes();
+    ram[base + 0xD2] = screen_bytes[0];
+    ram[base + 0xD3] = screen_bytes[1];
+
+    Some((original_flag, original_screen))
+}
+
+pub fn restore_cpu_slot(ram: &mut [u8], kart_slot: u8, original: (u16, u16)) {
+    let base = wram::racer_offset(kart_slot);
+    if base + 0xD4 > ram.len() {
+        eprintln!("writer: restore_cpu_slot: kart slot {kart_slot} struct falls outside WRAM, skipping");
+        return;
+    }
+    let (original_flag, original_screen) = original;
+    let flag_bytes = original_flag.to_le_bytes();
+    ram[base + 0x10] = flag_bytes[0];
+    ram[base + 0x11] = flag_bytes[1];
+    let screen_bytes = original_screen.to_le_bytes();
     ram[base + 0xD2] = screen_bytes[0];
     ram[base + 0xD3] = screen_bytes[1];
 }
@@ -314,19 +334,22 @@ impl AutoFinisher {
         self.done = all_succeeded;
     }
 }
-
-pub fn remove_unoccupied_cpus(ram: &mut [u8], occupied_kart_slots: &[u8]) {
+pub fn remove_unoccupied_cpus(ram: &mut [u8], occupied_kart_slots: &[u8]) -> HashMap<u8, (u16, u16)> {
     let mut occupied = [false; wram::NUM_KART_SLOTS as usize];
     for &kart_slot in occupied_kart_slots {
         if (kart_slot as usize) < occupied.len() {
             occupied[kart_slot as usize] = true;
         }
     }
+    let mut disabled = HashMap::new();
     for kart_slot in 0..wram::NUM_KART_SLOTS {
         if !occupied[kart_slot as usize] {
-            remove_unoccupied_cpu(ram, kart_slot);
+            if let Some(original) = remove_unoccupied_cpu(ram, kart_slot) {
+                disabled.insert(kart_slot, original);
+            }
         }
     }
+    disabled
 }
 
 pub fn run_startup_placement(ram: &mut [u8], my_start_pos: u8, others: &[(u8, u8)]) {

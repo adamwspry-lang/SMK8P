@@ -58,6 +58,8 @@ pub struct LobbyApp {
     received_first_race_start: bool,
 
     settings_clicked: bool,
+
+    can_join: bool,
 }
 
 impl LobbyApp {
@@ -81,11 +83,16 @@ impl LobbyApp {
             show_mushroom_prompt: false,
             received_first_race_start: false,
             settings_clicked: false,
+            can_join: true,
         }
     }
 
     pub fn set_mushroom_prompt(&mut self, can_enter: bool) {
         self.show_mushroom_prompt = can_enter;
+    }
+
+    pub fn set_can_join(&mut self, can_join: bool) {
+        self.can_join = can_join;
     }
 
     pub fn take_settings_clicked(&mut self) -> bool {
@@ -255,10 +262,13 @@ impl LobbyApp {
         if !name_valid {
             ui.colored_label(egui::Color32::GRAY, "Enter a 3-letter name to continue");
         }
+        if !self.can_join {
+            ui.colored_label(egui::Color32::GRAY, "Return to the title screen before joining or creating a room");
+        }
 
         ui.separator();
 
-        ui.add_enabled_ui(name_valid, |ui| {
+        ui.add_enabled_ui(name_valid && self.can_join, |ui| {
             
             ui.label("Create Room");
             ui.checkbox(&mut self.create_public, "Public room");
