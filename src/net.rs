@@ -8,9 +8,6 @@ use std::time::Duration;
 
 const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 
-// Read side has no app-level timeout today; the read loop just blocks on
-// read_line(). Keepalive is what makes it wake up with a Disconnected event
-// instead of sitting there forever on a half-dead connection.
 const KEEPALIVE_IDLE: Duration = Duration::from_secs(30);
 const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(15);
 const KEEPALIVE_RETRIES: u32 = 4;
