@@ -20,7 +20,7 @@ jobs:
           - os: macos-latest
             target: aarch64-apple-darwin
             asset_name: SMK8P-macos-arm64.zip
-          - os: macos-13
+          - os: macos-15-intel
             target: x86_64-apple-darwin
             asset_name: SMK8P-macos-x86_64.zip
 
