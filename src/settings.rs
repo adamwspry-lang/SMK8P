@@ -209,7 +209,6 @@ impl Default for Settings {
 }
 
 impl Settings {
-
     pub fn load() -> Self {
         let path = crate::exe_dir().join(SETTINGS_FILE);
         match std::fs::read_to_string(&path) {
@@ -335,7 +334,6 @@ impl SettingsWindow {
                     if ui.button("Reset to defaults").clicked() {
                         settings.bindings = InputBindings::default();
                     }
-
                 });
             });
         self.open = open;

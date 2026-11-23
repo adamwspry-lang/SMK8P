@@ -17,12 +17,9 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             asset_name: SMK8P-windows-x86_64.zip
-          - os: macos-latest
+          - os: macos-13
             target: aarch64-apple-darwin
             asset_name: SMK8P-macos-arm64.zip
-          - os: macos-15-intel
-            target: x86_64-apple-darwin
-            asset_name: SMK8P-macos-x86_64.zip
 
     runs-on: ${{ matrix.os }}
 
@@ -34,6 +31,8 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Build
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "11.0"
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Package (Windows)
@@ -61,30 +60,6 @@ jobs:
 
           mkdir -p "$APP/Contents/MacOS/cores/snes9x-libretro"
           cp "cores/snes9x-libretro/snes9x_libretro.dylib" "$APP/Contents/MacOS/cores/snes9x-libretro/snes9x_libretro.dylib"
-
-          cd stage && zip -r "../${{ matrix.asset_name }}" "SMK8P.app"
-
-      - name: Build x86_64 snes9x core
-        if: matrix.target == 'x86_64-apple-darwin'
-        run: |
-          git clone --depth 1 https://github.com/libretro/snes9x.git snes9x-src
-          cd snes9x-src/libretro
-          # Force an Intel build regardless of the (Apple Silicon) runner arch
-          arch -x86_64 make -f Makefile platform=osx ARCHFLAGS="-arch x86_64" CC="clang -arch x86_64" CXX="clang++ -arch x86_64"
-          file snes9x_libretro.dylib
-
-      - name: Package (macOS x86_64)
-        if: matrix.target == 'x86_64-apple-darwin'
-        run: |
-          APP="stage/SMK8P.app"
-          mkdir -p "$APP/Contents/MacOS"
-          mkdir -p "$APP/Contents/Resources"
-          cp "target/${{ matrix.target }}/release/smk-client" "$APP/Contents/MacOS/smk-client"
-          cp "assets/Info.plist" "$APP/Contents/Info.plist"
-          cp "assets/icon.icns" "$APP/Contents/Resources/icon.icns"
-
-          mkdir -p "$APP/Contents/MacOS/cores/snes9x-libretro"
-          cp "snes9x-src/libretro/snes9x_libretro.dylib" "$APP/Contents/MacOS/cores/snes9x-libretro/snes9x_libretro.dylib"
 
           cd stage && zip -r "../${{ matrix.asset_name }}" "SMK8P.app"
 

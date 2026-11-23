@@ -1,10 +1,8 @@
 use crate::net::{LobbyClient, Request, RoomMember, ServerEvent};
 use eframe::egui;
-                   
+
 const HOST_COLOR: egui::Color32 = egui::Color32::from_rgb(0, 153, 0);
-
 const PENDING_COLOR: egui::Color32 = egui::Color32::from_rgb(51, 102, 255);
-
 const READY_COLOR: egui::Color32 = egui::Color32::from_rgb(230, 200, 0);
 
 #[derive(Debug, Clone, PartialEq)]
@@ -18,7 +16,6 @@ enum PlayerStatus {
 #[derive(Debug, Clone)]
 struct RosterRow {
     name: String,
-    
     slot: i32,
     status: PlayerStatus,
 }
@@ -30,7 +27,6 @@ enum Screen {
 
 pub struct LobbyApp {
     client: Option<LobbyClient>,
-
     screen: Screen,
 
     name_input: String,
@@ -42,9 +38,7 @@ pub struct LobbyApp {
 
     room_code: String,
     roster: Vec<RosterRow>,
-    
     status: String,
-    
     is_host: bool,
 
     last_error: Option<String>,
@@ -54,12 +48,15 @@ pub struct LobbyApp {
     start_track_input: u8,
 
     show_mushroom_prompt: bool,
-
     received_first_race_start: bool,
-
     settings_clicked: bool,
-
     can_join: bool,
+
+    sync_item_boxes: bool,
+    sync_coins: bool,
+    sync_rng: bool,
+
+    show_room_options: bool,
 }
 
 impl LobbyApp {
@@ -84,6 +81,10 @@ impl LobbyApp {
             received_first_race_start: false,
             settings_clicked: false,
             can_join: true,
+            sync_item_boxes: true,
+            sync_coins: true,
+            sync_rng: true,
+            show_room_options: false,
         }
     }
 
@@ -140,17 +141,37 @@ impl LobbyApp {
             ServerEvent::RoomList { rooms } => {
                 self.public_rooms = rooms;
             }
-            
             ServerEvent::FoldedIn { .. } => {}
-            ServerEvent::RoomState { code, status, active, pending, is_host, all_active_ready, next_track: _ } => {
-                
+            ServerEvent::ItemSpawn { .. } => {}
+            ServerEvent::ItemUsed { .. } => {}
+            ServerEvent::ItemDespawning { .. } => {}
+            ServerEvent::CollectibleTaken { .. } => {}
+            ServerEvent::Lap2Entered => {}
+            ServerEvent::LightningUsed { .. } => {}
+            ServerEvent::RoomState {
+                code,
+                status,
+                active,
+                pending,
+                is_host,
+                all_active_ready,
+                next_track: _,
+                next_rng_seed: _,
+                sync_item_boxes,
+                sync_coins,
+                sync_rng,
+            } => {
                 self.room_code = code;
                 self.status = status.clone();
-                
+
                 if let Some(host) = is_host {
                     self.is_host = host;
                 }
-                self.roster = build_roster(&status, &active, &pending, is_host, all_active_ready);
+                self.roster = build_roster(&status, &active, &pending, all_active_ready);
+
+                self.sync_item_boxes = sync_item_boxes;
+                self.sync_coins = sync_coins;
+                self.sync_rng = sync_rng;
             }
             ServerEvent::RoomClosed { reason } => {
                 self.last_error = Some(format!("room closed: {reason}"));
@@ -171,7 +192,6 @@ impl LobbyApp {
                 self.client = None;
                 self.return_to_screen1();
             }
-            
             ServerEvent::RaceStart { .. } => {
                 self.received_first_race_start = true;
             }
@@ -184,40 +204,13 @@ impl LobbyApp {
         self.roster.clear();
         self.status.clear();
         self.is_host = false;
-        
         self.received_first_race_start = false;
+        self.show_room_options = false;
+        self.sync_item_boxes = true;
+        self.sync_coins = true;
+        self.sync_rng = true;
     }
-}
 
-fn build_roster(
-    status: &str,
-    active: &[RoomMember],
-    pending: &[RoomMember],
-    is_host: Option<bool>,
-    all_active_ready: bool,
-) -> Vec<RosterRow> {
-    let mut rows = Vec::new();
-    for (i, member) in active.iter().enumerate() {
-        
-        let status_for_row = if status == "lobby" && i == 0 {
-            PlayerStatus::Host
-        } else if member.ready && !all_active_ready {
-            PlayerStatus::Ready
-        } else {
-            PlayerStatus::Active
-        };
-        let _ = is_host;
-        rows.push(RosterRow { name: member.name.clone(), slot: member.slot, status: status_for_row });
-    }
-    for member in pending {
-        
-        rows.push(RosterRow { name: member.name.clone(), slot: member.slot, status: PlayerStatus::Pending });
-    }
-    rows
-}
-
-impl LobbyApp {
-    
     pub fn ui(&mut self, ui: &mut egui::Ui) -> Vec<ServerEvent> {
         let events = self.poll_events();
         for event in &events {
@@ -236,14 +229,10 @@ impl LobbyApp {
 
         events
     }
-}
 
-impl LobbyApp {
-    
     fn draw_screen1(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.heading("SMK 8-Player");
-            
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button("⚙").on_hover_text("Settings").clicked() {
                     self.settings_clicked = true;
@@ -254,7 +243,7 @@ impl LobbyApp {
 
         ui.label("Name (3 letters):");
         ui.text_edit_singleline(&mut self.name_input);
-        
+
         self.name_input = self.name_input.to_uppercase();
         self.name_input.truncate(3);
 
@@ -269,7 +258,6 @@ impl LobbyApp {
         ui.separator();
 
         ui.add_enabled_ui(name_valid && self.can_join, |ui| {
-            
             ui.label("Create Room");
             ui.checkbox(&mut self.create_public, "Public room");
             if ui.button("Create Room").clicked() {
@@ -340,15 +328,57 @@ impl LobbyApp {
 
         if self.is_host && self.status == "lobby" {
             ui.horizontal(|ui| {
-                ui.label("Start track:");
-                let mut value = self.start_track_input as i32;
-                if ui
-                    .add(egui::DragValue::new(&mut value).range(0..=19))
-                    .changed()
-                {
-                    self.start_track_input = value as u8;
+                let label = if self.show_room_options { "▼ Room Options" } else { "▶ Room Options" };
+                if ui.button(label).clicked() {
+                    self.show_room_options = !self.show_room_options;
                 }
             });
+
+            if self.show_room_options {
+                egui::Frame::group(ui.style()).show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("Start track:");
+                        let mut value = self.start_track_input as i32;
+                        if ui
+                            .add(egui::DragValue::new(&mut value).range(0..=19))
+                            .changed()
+                        {
+                            self.start_track_input = value as u8;
+                        }
+                    });
+                    ui.separator();
+
+                    let mut sync_item_boxes = self.sync_item_boxes;
+                    if ui.checkbox(&mut sync_item_boxes, "Sync item boxes").changed() {
+                        self.sync_item_boxes = sync_item_boxes;
+                        self.send(Request::SetRoomOptions {
+                            sync_item_boxes: Some(sync_item_boxes),
+                            sync_coins: None,
+                            sync_rng: None,
+                        });
+                    }
+
+                    let mut sync_coins = self.sync_coins;
+                    if ui.checkbox(&mut sync_coins, "Sync coins").changed() {
+                        self.sync_coins = sync_coins;
+                        self.send(Request::SetRoomOptions {
+                            sync_item_boxes: None,
+                            sync_coins: Some(sync_coins),
+                            sync_rng: None,
+                        });
+                    }
+
+                    let mut sync_rng = self.sync_rng;
+                    if ui.checkbox(&mut sync_rng, "Sync RNG").changed() {
+                        self.sync_rng = sync_rng;
+                        self.send(Request::SetRoomOptions {
+                            sync_item_boxes: None,
+                            sync_coins: None,
+                            sync_rng: Some(sync_rng),
+                        });
+                    }
+                });
+            }
             ui.separator();
         }
 
@@ -367,7 +397,6 @@ impl LobbyApp {
             };
             ui.horizontal(|ui| {
                 ui.label(text);
-                
                 let is_self = row.name == self.name_input;
                 let kickable = show_kick && !is_self && row.status != PlayerStatus::Pending;
                 if kickable && ui.small_button("Kick").clicked() {
@@ -388,6 +417,29 @@ impl LobbyApp {
             }
         }
     }
+}
+
+fn build_roster(
+    status: &str,
+    active: &[RoomMember],
+    pending: &[RoomMember],
+    all_active_ready: bool,
+) -> Vec<RosterRow> {
+    let mut rows = Vec::new();
+    for (i, member) in active.iter().enumerate() {
+        let status_for_row = if status == "lobby" && i == 0 {
+            PlayerStatus::Host
+        } else if member.ready && !all_active_ready {
+            PlayerStatus::Ready
+        } else {
+            PlayerStatus::Active
+        };
+        rows.push(RosterRow { name: member.name.clone(), slot: member.slot, status: status_for_row });
+    }
+    for member in pending {
+        rows.push(RosterRow { name: member.name.clone(), slot: member.slot, status: PlayerStatus::Pending });
+    }
+    rows
 }
 
 fn valid_name(name: &str) -> bool {

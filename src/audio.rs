@@ -8,9 +8,7 @@ const MAX_QUEUED_SAMPLES: usize = 48_000 / 2;
 struct Resampler {
     from_rate: f64,
     to_rate: f64,
-    
     phase: f64,
-    
     last_frame: (i16, i16),
 }
 
@@ -78,15 +76,12 @@ fn lerp_i16(a: i16, b: i16, t: f64) -> i16 {
 pub struct AudioOutput {
     queue: Arc<Mutex<VecDeque<i16>>>,
     resampler: Mutex<Resampler>,
-    
     volume_bits: Arc<AtomicU32>,
-    
     _stream: cpal::Stream,
 }
 
 impl AudioOutput {
-    
-    pub fn new(source_rate_hz: f64) -> Result<Self, String> {
+    pub fn new(source_rate_hz: f64, initial_volume: f32) -> Result<Self, String> {
         let host = cpal::default_host();
         let device = host
             .default_output_device()
@@ -113,7 +108,7 @@ impl AudioOutput {
         let queue: Arc<Mutex<VecDeque<i16>>> = Arc::new(Mutex::new(VecDeque::new()));
         let queue_for_callback = Arc::clone(&queue);
 
-        let volume_bits: Arc<AtomicU32> = Arc::new(AtomicU32::new(1.0f32.to_bits()));
+        let volume_bits: Arc<AtomicU32> = Arc::new(AtomicU32::new(initial_volume.clamp(0.0, 1.0).to_bits()));
         let volume_for_callback = Arc::clone(&volume_bits);
 
         let sample_format = supported.sample_format();
@@ -150,10 +145,7 @@ impl AudioOutput {
                     None,
                 )
                 .map_err(|e| format!("failed to build f32 audio output stream: {e}"))?,
-            other => {
-                
-                return Err(format!("unsupported device sample format: {other:?}"));
-            }
+            other => return Err(format!("unsupported device sample format: {other:?}")),
         };
 
         stream

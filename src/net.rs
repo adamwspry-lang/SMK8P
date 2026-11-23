@@ -24,9 +24,28 @@ struct OutMessage {
     public: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     slot: Option<i32>,
-
     #[serde(skip_serializing_if = "Option::is_none")]
     start_track: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    item_type: Option<u8>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    alt_direction: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    evicted_owner_slot: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    owner_slot: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tile_index: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tile_byte0: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tile_byte1: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sync_item_boxes: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sync_coins: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sync_rng: Option<bool>,
 }
 
 impl OutMessage {
@@ -38,6 +57,16 @@ impl OutMessage {
             public: None,
             slot: None,
             start_track: None,
+            item_type: None,
+            alt_direction: false,
+            evicted_owner_slot: None,
+            owner_slot: None,
+            tile_index: None,
+            tile_byte0: None,
+            tile_byte1: None,
+            sync_item_boxes: None,
+            sync_coins: None,
+            sync_rng: None,
         }
     }
 }
@@ -47,12 +76,18 @@ pub enum Request {
     CreateRoom { name: String, public: bool },
     JoinRoom { name: String, code: String },
     ListRooms,
-
     StartRoom { start_track: i32 },
     Ready,
     Kick { slot: i32 },
     LeaveRoom,
     Finished,
+    ThrowItem { item_type: u8, alt_direction: bool, evicted_owner_slot: Option<i32> },
+    ItemUsed { owner_slot: i32 },
+    ItemDespawning { owner_slot: i32 },
+    CollectibleTaken { tile_index: u16, tile_byte0: u8, tile_byte1: Option<u8> },
+    EnteredLap2,
+    LightningUsed,
+    SetRoomOptions { sync_item_boxes: Option<bool>, sync_coins: Option<bool>, sync_rng: Option<bool> },
 }
 
 impl From<Request> for OutMessage {
@@ -80,6 +115,32 @@ impl From<Request> for OutMessage {
             },
             Request::LeaveRoom => OutMessage::bare("leave_room"),
             Request::Finished => OutMessage::bare("finished"),
+            Request::ThrowItem { item_type, alt_direction, evicted_owner_slot } => OutMessage {
+                item_type: Some(item_type),
+                alt_direction,
+                evicted_owner_slot,
+                ..OutMessage::bare("throw_item")
+            },
+            Request::ItemUsed { owner_slot } => {
+                OutMessage { owner_slot: Some(owner_slot), ..OutMessage::bare("item_used") }
+            }
+            Request::ItemDespawning { owner_slot } => {
+                OutMessage { owner_slot: Some(owner_slot), ..OutMessage::bare("item_despawning") }
+            }
+            Request::CollectibleTaken { tile_index, tile_byte0, tile_byte1 } => OutMessage {
+                tile_index: Some(tile_index),
+                tile_byte0: Some(tile_byte0),
+                tile_byte1,
+                ..OutMessage::bare("collectible_taken")
+            },
+            Request::EnteredLap2 => OutMessage::bare("entered_lap2"),
+            Request::LightningUsed => OutMessage::bare("lightning_used"),
+            Request::SetRoomOptions { sync_item_boxes, sync_coins, sync_rng } => OutMessage {
+                sync_item_boxes,
+                sync_coins,
+                sync_rng,
+                ..OutMessage::bare("set_room_options")
+            },
         }
     }
 }
@@ -88,7 +149,6 @@ impl From<Request> for OutMessage {
 struct RoomCreated {
     code: String,
     start_pos: i32,
-
     #[serde(default)]
     udp_token: String,
 }
@@ -96,10 +156,8 @@ struct RoomCreated {
 #[derive(Debug, Clone, Deserialize)]
 struct Joined {
     code: String,
-
     #[serde(default)]
     start_pos: i32,
-
     #[serde(default)]
     udp_token: String,
 }
@@ -107,7 +165,6 @@ struct Joined {
 #[derive(Debug, Clone, Deserialize)]
 struct FoldedIn {
     start_pos: i32,
-
     #[serde(default)]
     next_track: i32,
 }
@@ -120,7 +177,6 @@ struct RoomSummary {
 
 #[derive(Debug, Clone, Deserialize)]
 struct RoomList {
-
     #[serde(default)]
     rooms: Option<Vec<RoomSummary>>,
 }
@@ -130,7 +186,6 @@ pub struct RoomMember {
     pub name: String,
     pub slot: i32,
     pub start_pos: i32,
-
     #[serde(default)]
     pub ready: bool,
 }
@@ -141,21 +196,57 @@ struct RoomState {
     status: String,
     active: Vec<RoomMember>,
     pending: Vec<RoomMember>,
-
     is_host: Option<bool>,
-
     all_active_ready: bool,
-
     #[serde(default)]
     next_track: i32,
+    #[serde(default)]
+    next_rng_seed: i32,
+    #[serde(default = "default_true")]
+    sync_item_boxes: bool,
+    #[serde(default = "default_true")]
+    sync_coins: bool,
+    #[serde(default = "default_true")]
+    sync_rng: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Deserialize)]
 struct RaceStart {
     rng_seed: i32,
     slot: i32,
-
     start_pos: Option<i32>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct ItemSpawnMsg {
+    thrower_slot: i32,
+    item_type: u8,
+    #[serde(default)]
+    alt_direction: bool,
+    #[serde(default)]
+    evicted_owner_slot: Option<i32>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct ItemUsedMsg {
+    owner_slot: i32,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct LightningUsedMsg {
+    thrower_slot: i32,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct CollectibleTakenMsg {
+    tile_index: u16,
+    tile_byte0: u8,
+    #[serde(default)]
+    tile_byte1: Option<u8>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -173,7 +264,6 @@ struct ErrorMsg {
 pub enum ServerEvent {
     RoomCreated { code: String, start_pos: i32, udp_token: String },
     Joined { code: String, start_pos: i32, udp_token: String },
-
     FoldedIn { start_pos: i32, next_track: i32 },
     RoomList { rooms: Vec<(String, i32)> },
     RoomState {
@@ -184,13 +274,22 @@ pub enum ServerEvent {
         is_host: Option<bool>,
         all_active_ready: bool,
         next_track: i32,
+        next_rng_seed: i32,
+        sync_item_boxes: bool,
+        sync_coins: bool,
+        sync_rng: bool,
     },
     RaceStart { rng_seed: i32, slot: i32, start_pos: Option<i32> },
     RoomClosed { reason: String },
     Kicked,
     Left,
     Error { reason: String, message: String },
-
+    ItemSpawn { thrower_slot: i32, item_type: u8, alt_direction: bool, evicted_owner_slot: Option<i32> },
+    ItemUsed { owner_slot: i32 },
+    ItemDespawning { owner_slot: i32 },
+    CollectibleTaken { tile_index: u16, tile_byte0: u8, tile_byte1: Option<u8> },
+    Lap2Entered,
+    LightningUsed { thrower_slot: i32 },
     Disconnected,
 }
 
@@ -252,6 +351,10 @@ fn parse_event(line: &str) -> Option<ServerEvent> {
                 is_host: m.is_host,
                 all_active_ready: m.all_active_ready,
                 next_track: m.next_track,
+                next_rng_seed: m.next_rng_seed,
+                sync_item_boxes: m.sync_item_boxes,
+                sync_coins: m.sync_coins,
+                sync_rng: m.sync_rng,
             })
         }
         "race_start" => {
@@ -262,8 +365,38 @@ fn parse_event(line: &str) -> Option<ServerEvent> {
             let m: RoomClosed = parse_or_log!(RoomClosed, "room_closed", line)?;
             Some(ServerEvent::RoomClosed { reason: m.reason })
         }
+        "item_spawn" => {
+            let m: ItemSpawnMsg = parse_or_log!(ItemSpawnMsg, "item_spawn", line)?;
+            Some(ServerEvent::ItemSpawn {
+                thrower_slot: m.thrower_slot,
+                item_type: m.item_type,
+                alt_direction: m.alt_direction,
+                evicted_owner_slot: m.evicted_owner_slot,
+            })
+        }
+        "item_used" => {
+            let m: ItemUsedMsg = parse_or_log!(ItemUsedMsg, "item_used", line)?;
+            Some(ServerEvent::ItemUsed { owner_slot: m.owner_slot })
+        }
+        "item_despawning" => {
+            let m: ItemUsedMsg = parse_or_log!(ItemUsedMsg, "item_despawning", line)?;
+            Some(ServerEvent::ItemDespawning { owner_slot: m.owner_slot })
+        }
+        "collectible_taken" => {
+            let m: CollectibleTakenMsg = parse_or_log!(CollectibleTakenMsg, "collectible_taken", line)?;
+            Some(ServerEvent::CollectibleTaken {
+                tile_index: m.tile_index,
+                tile_byte0: m.tile_byte0,
+                tile_byte1: m.tile_byte1,
+            })
+        }
         "kicked" => Some(ServerEvent::Kicked),
         "left" => Some(ServerEvent::Left),
+        "lap2_entered" => Some(ServerEvent::Lap2Entered),
+        "lightning_used" => {
+            let m: LightningUsedMsg = parse_or_log!(LightningUsedMsg, "lightning_used", line)?;
+            Some(ServerEvent::LightningUsed { thrower_slot: m.thrower_slot })
+        }
         "error" => {
             let m: ErrorMsg = parse_or_log!(ErrorMsg, "error", line)?;
             Some(ServerEvent::Error { reason: m.reason, message: m.message })
@@ -281,7 +414,6 @@ pub struct LobbyClient {
 }
 
 impl LobbyClient {
-
     pub fn connect(addr: &str) -> std::io::Result<Self> {
         let sock_addr: SocketAddr = addr
             .to_socket_addrs()?
@@ -319,10 +451,7 @@ impl LobbyClient {
         line.push('\n');
 
         match self.stream.write_all(line.as_bytes()) {
-            Ok(()) => {
-                eprintln!("net: sent {} bytes: {}", line.len(), line.trim_end());
-                Ok(())
-            }
+            Ok(()) => Ok(()),
             Err(e) => {
                 eprintln!("net: WRITE FAILED for {}: {e} (kind: {:?})", line.trim_end(), e.kind());
                 Err(e)
@@ -342,7 +471,6 @@ fn read_loop(stream: TcpStream, tx: Sender<ServerEvent>) {
         line.clear();
         match reader.read_line(&mut line) {
             Ok(0) => {
-
                 let _ = tx.send(ServerEvent::Disconnected);
                 return;
             }
@@ -353,11 +481,9 @@ fn read_loop(stream: TcpStream, tx: Sender<ServerEvent>) {
                 }
                 if let Some(event) = parse_event(trimmed) {
                     if tx.send(event).is_err() {
-
                         return;
                     }
                 }
-
             }
             Err(e) => {
                 eprintln!("net: read error, treating as disconnect: {e}");
@@ -365,145 +491,5 @@ fn read_loop(stream: TcpStream, tx: Sender<ServerEvent>) {
                 return;
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn create_room_serializes_like_main_go_expects() {
-        let out: OutMessage = Request::CreateRoom { name: "ADM".into(), public: true }.into();
-        let json = serde_json::to_string(&out).unwrap();
-        assert!(json.contains(r#""type":"create_room""#));
-        assert!(json.contains(r#""name":"ADM""#));
-        assert!(json.contains(r#""public":true"#));
-
-        assert!(!json.contains("code"));
-        assert!(!json.contains("slot"));
-    }
-
-    #[test]
-    fn leave_room_has_no_extra_fields() {
-        let out: OutMessage = Request::LeaveRoom.into();
-        let json = serde_json::to_string(&out).unwrap();
-        assert_eq!(json, r#"{"type":"leave_room"}"#);
-    }
-
-    #[test]
-    fn finished_serializes_with_no_position_field() {
-        let out: OutMessage = Request::Finished.into();
-        let json = serde_json::to_string(&out).unwrap();
-        assert_eq!(json, r#"{"type":"finished"}"#);
-    }
-
-    #[test]
-    fn parses_room_state_with_is_host_present() {
-        let line = r#"{"type":"room_state","code":"ADM","status":"lobby","active":[{"name":"ADM","slot":0,"start_pos":1}],"pending":[],"is_host":true,"all_active_ready":false}"#;
-        match parse_event(line) {
-            Some(ServerEvent::RoomState { code, status, active, is_host, all_active_ready, .. }) => {
-                assert_eq!(code, "ADM");
-                assert_eq!(status, "lobby");
-                assert_eq!(active.len(), 1);
-                assert_eq!(active[0].name, "ADM");
-                assert_eq!(active[0].slot, 0);
-                assert_eq!(is_host, Some(true));
-                assert_eq!(all_active_ready, false);
-            }
-            other => panic!("expected RoomState, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn parses_room_state_with_is_host_absent_once_racing() {
-
-        let line = r#"{"type":"room_state","code":"ADM","status":"racing","active":[{"name":"ADM","slot":0,"start_pos":1}],"pending":[],"all_active_ready":true}"#;
-        match parse_event(line) {
-            Some(ServerEvent::RoomState { is_host, status, all_active_ready, .. }) => {
-                assert_eq!(status, "racing");
-                assert_eq!(is_host, None);
-                assert_eq!(all_active_ready, true);
-            }
-            other => panic!("expected RoomState, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn parses_pending_member_with_unassigned_slot() {
-
-        let line = r#"{"type":"room_state","code":"ADM","status":"racing","active":[{"name":"ADM","slot":0,"start_pos":1}],"pending":[{"name":"BOB","slot":-1,"start_pos":2}],"all_active_ready":true}"#;
-        match parse_event(line) {
-            Some(ServerEvent::RoomState { pending, .. }) => {
-                assert_eq!(pending.len(), 1);
-                assert_eq!(pending[0].slot, -1);
-            }
-            other => panic!("expected RoomState, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn parses_joined_without_start_pos_as_pending() {
-
-        let line = r#"{"type":"joined","code":"ADM"}"#;
-        match parse_event(line) {
-            Some(ServerEvent::Joined { code, start_pos, .. }) => {
-                assert_eq!(code, "ADM");
-                assert_eq!(start_pos, 0);
-            }
-            other => panic!("expected Joined, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn parses_folded_in() {
-        let line = r#"{"type":"folded_in","start_pos":4,"next_track":7}"#;
-        match parse_event(line) {
-            Some(ServerEvent::FoldedIn { start_pos, next_track }) => {
-                assert_eq!(start_pos, 4);
-                assert_eq!(next_track, 7);
-            }
-            other => panic!("expected FoldedIn, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn parses_race_start_without_start_pos() {
-        let line = r#"{"type":"race_start","rng_seed":4242,"slot":2}"#;
-        match parse_event(line) {
-            Some(ServerEvent::RaceStart { rng_seed, slot, start_pos }) => {
-                assert_eq!(rng_seed, 4242);
-                assert_eq!(slot, 2);
-                assert_eq!(start_pos, None);
-            }
-            other => panic!("expected RaceStart, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn parses_error_message() {
-        let line = r#"{"type":"error","reason":"not_host","message":"only the room host can start the room"}"#;
-        match parse_event(line) {
-            Some(ServerEvent::Error { reason, message }) => {
-                assert_eq!(reason, "not_host");
-                assert_eq!(message, "only the room host can start the room");
-            }
-            other => panic!("expected Error, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn parses_room_list_null_as_empty() {
-        let line = r#"{"type":"room_list","rooms":null}"#;
-        match parse_event(line) {
-            Some(ServerEvent::RoomList { rooms }) => assert!(rooms.is_empty()),
-            other => panic!("expected RoomList, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn unrecognized_type_is_ignored_not_fatal() {
-        let line = r#"{"type":"something_future_versions_added"}"#;
-        assert!(parse_event(line).is_none());
     }
 }

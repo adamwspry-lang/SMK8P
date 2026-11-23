@@ -1,3 +1,6 @@
+use std::collections::{HashMap, HashSet};
+use std::net::{SocketAddr, UdpSocket};
+
 use crate::wram;
 
 pub fn write_mailbox_bit(ram: &mut [u8], bit: u8, value: bool) {
@@ -30,6 +33,149 @@ pub fn write_rng_seed(ram: &mut [u8], seed: u16) {
     ram[wram::RNG_ADDR + 1] = bytes[1];
 }
 
+#[allow(clippy::too_many_arguments)]
+pub fn write_fish_state(
+    ram: &mut [u8],
+    slot_index: usize,
+    pos0: i16,
+    vel0: i16,
+    pos1: i16,
+    frac1: u8,
+    vel1: i16,
+    tgt1: i16,
+    pos2: i16,
+    frac2: u8,
+    vel2: i16,
+    tgt2: i16,
+) {
+    let Some(&base) = wram::HAZARD_SLOT_BASES.get(slot_index) else {
+        eprintln!("writer: write_fish_state: bad slot_index {slot_index} (expected 0..4)");
+        return;
+    };
+    let end = base + wram::HAZARD_SLOT_SIZE;
+    if end > ram.len() {
+        eprintln!(
+            "writer: fish write out of bounds: slot base {base:#x} + size {:#x} > ram len {:#x}",
+            wram::HAZARD_SLOT_SIZE,
+            ram.len()
+        );
+        return;
+    }
+
+    let pos0_bytes = pos0.to_le_bytes();
+    ram[base + wram::FISH_POS0_LO_OFFSET] = pos0_bytes[0];
+    ram[base + wram::FISH_POS0_HI_OFFSET] = pos0_bytes[1];
+
+    let vel0_bytes = vel0.to_le_bytes();
+    ram[base + wram::FISH_VEL0_OFFSET] = vel0_bytes[0];
+    ram[base + wram::FISH_VEL0_OFFSET + 1] = vel0_bytes[1];
+
+    ram[base + wram::FISH_POS1_FRAC_OFFSET] = frac1;
+    let pos1_bytes = pos1.to_le_bytes();
+    ram[base + wram::FISH_POS1_WORD_OFFSET] = pos1_bytes[0];
+    ram[base + wram::FISH_POS1_WORD_OFFSET + 1] = pos1_bytes[1];
+
+    let vel1_bytes = vel1.to_le_bytes();
+    ram[base + wram::FISH_VEL1_OFFSET] = vel1_bytes[0];
+    ram[base + wram::FISH_VEL1_OFFSET + 1] = vel1_bytes[1];
+
+    let tgt1_bytes = tgt1.to_le_bytes();
+    ram[base + wram::FISH_TGT1_OFFSET] = tgt1_bytes[0];
+    ram[base + wram::FISH_TGT1_OFFSET + 1] = tgt1_bytes[1];
+
+    ram[base + wram::FISH_POS2_FRAC_OFFSET] = frac2;
+    let pos2_bytes = pos2.to_le_bytes();
+    ram[base + wram::FISH_POS2_WORD_OFFSET] = pos2_bytes[0];
+    ram[base + wram::FISH_POS2_WORD_OFFSET + 1] = pos2_bytes[1];
+
+    let vel2_bytes = vel2.to_le_bytes();
+    ram[base + wram::FISH_VEL2_OFFSET] = vel2_bytes[0];
+    ram[base + wram::FISH_VEL2_OFFSET + 1] = vel2_bytes[1];
+
+    let tgt2_bytes = tgt2.to_le_bytes();
+    ram[base + wram::FISH_TGT2_OFFSET] = tgt2_bytes[0];
+    ram[base + wram::FISH_TGT2_OFFSET + 1] = tgt2_bytes[1];
+
+    const SHADOW_OFFSET: usize = 0x40;
+    ram[base + wram::FISH_POS0_LO_OFFSET + SHADOW_OFFSET] = pos0_bytes[0];
+    ram[base + wram::FISH_POS0_HI_OFFSET + SHADOW_OFFSET] = pos0_bytes[1];
+    ram[base + wram::FISH_VEL0_OFFSET + SHADOW_OFFSET] = vel0_bytes[0];
+    ram[base + wram::FISH_VEL0_OFFSET + SHADOW_OFFSET + 1] = vel0_bytes[1];
+    ram[base + wram::FISH_VEL1_OFFSET + SHADOW_OFFSET] = vel1_bytes[0];
+    ram[base + wram::FISH_VEL1_OFFSET + SHADOW_OFFSET + 1] = vel1_bytes[1];
+    ram[base + wram::FISH_VEL2_OFFSET + SHADOW_OFFSET] = vel2_bytes[0];
+    ram[base + wram::FISH_VEL2_OFFSET + SHADOW_OFFSET + 1] = vel2_bytes[1];
+}
+
+pub fn write_thwomp_state(
+    ram: &mut [u8],
+    slot_index: usize,
+    pos: i16,
+    frac: u8,
+    vel: i16,
+    state: u8,
+    remaining: i32,
+) {
+    let Some(&base) = wram::HAZARD_SLOT_BASES.get(slot_index) else {
+        eprintln!("writer: write_thwomp_state: bad slot_index {slot_index} (expected 0..4)");
+        return;
+    };
+    let end = base + wram::HAZARD_SLOT_SIZE;
+    if end > ram.len() {
+        eprintln!(
+            "writer: thwomp write out of bounds: slot base {base:#x} + size {:#x} > ram len {:#x}",
+            wram::HAZARD_SLOT_SIZE,
+            ram.len()
+        );
+        return;
+    }
+
+    ram[base + wram::THWOMP_POS_FRAC_OFFSET] = frac;
+    let pos_bytes = pos.to_le_bytes();
+    ram[base + wram::THWOMP_POS_WORD_OFFSET] = pos_bytes[0];
+    ram[base + wram::THWOMP_POS_WORD_OFFSET + 1] = pos_bytes[1];
+
+    let vel_bytes = vel.to_le_bytes();
+    ram[base + wram::THWOMP_VEL_OFFSET] = vel_bytes[0];
+    ram[base + wram::THWOMP_VEL_OFFSET + 1] = vel_bytes[1];
+
+    ram[base + wram::THWOMP_STATE_OFFSET] = state;
+
+    let remaining_bytes = (remaining as i16).to_le_bytes();
+    ram[base + wram::THWOMP_CD_OFFSET] = remaining_bytes[0];
+    ram[base + wram::THWOMP_CD_OFFSET + 1] = remaining_bytes[1];
+}
+
+pub fn write_mole_state(ram: &mut [u8], slot_index: usize, pos: i16, vel: i16, state: u8, cd: i32) {
+    let Some(&base) = wram::HAZARD_SLOT_BASES.get(slot_index) else {
+        eprintln!("writer: write_mole_state: bad slot_index {slot_index} (expected 0..4)");
+        return;
+    };
+    let end = base + wram::HAZARD_SLOT_SIZE;
+    if end > ram.len() {
+        eprintln!(
+            "writer: mole write out of bounds: slot base {base:#x} + size {:#x} > ram len {:#x}",
+            wram::HAZARD_SLOT_SIZE,
+            ram.len()
+        );
+        return;
+    }
+
+    let pos_bytes = pos.to_le_bytes();
+    ram[base + wram::MOLE_POS_LO_OFFSET] = pos_bytes[0];
+    ram[base + wram::MOLE_POS_HI_OFFSET] = pos_bytes[1];
+
+    let vel_bytes = vel.to_le_bytes();
+    ram[base + wram::MOLE_VEL_OFFSET] = vel_bytes[0];
+    ram[base + wram::MOLE_VEL_OFFSET + 1] = vel_bytes[1];
+
+    ram[base + wram::MOLE_STATE_OFFSET] = state;
+
+    let cd_bytes = (cd as i16).to_le_bytes();
+    ram[base + wram::MOLE_CD_OFFSET] = cd_bytes[0];
+    ram[base + wram::MOLE_CD_OFFSET + 1] = cd_bytes[1];
+}
+
 pub fn inject_track_index(ram: &mut [u8], track_index: u8) {
     if wram::RACE_NUMBER_ADDR + 1 >= ram.len() || wram::CUP_NUMBER_ADDR + 1 >= ram.len() {
         eprintln!(
@@ -40,11 +186,6 @@ pub fn inject_track_index(ram: &mut [u8], track_index: u8) {
         );
         return;
     }
-    debug_assert!(
-        track_index < wram::NUM_TRACKS,
-        "track_index {track_index} out of range (0..{})",
-        wram::NUM_TRACKS
-    );
     ram[wram::RACE_NUMBER_ADDR] = track_index;
     ram[wram::RACE_NUMBER_ADDR + 1] = 0;
     ram[wram::CUP_NUMBER_ADDR] = 0;
@@ -66,7 +207,7 @@ const EXCLUDED_RANGES: &[(u8, u8)] = &[
 ];
 
 fn is_excluded(offset: u8) -> bool {
-    EXCLUDED_RANGES.iter().any(|&(lo, hi)| offset >= lo && offset <= hi)
+    EXCLUDED_RANGES.iter().any(|&(lo, hi)| (lo..=hi).contains(&offset))
 }
 
 pub fn apply_incoming_racer_data(ram: &mut [u8], kart_slot: u8, payload: &[u8]) {
@@ -105,16 +246,10 @@ pub fn extract_local_racer_data(ram: &[u8]) -> [u8; wram::RACER_STRUCT_SIZE] {
     out
 }
 
-const POSITION_FIELD_RANGES: &[(u8, u8)] = &[
-    (0x16, 0x21),
-    (0x22, 0x27),
-    (0x2A, 0x2B),
-    (0x40, 0x41),
-                   
-];
+const POSITION_FIELD_RANGES: &[(u8, u8)] = &[(0x16, 0x21), (0x22, 0x27), (0x2A, 0x2B), (0x40, 0x41)];
 
 fn is_position_field(offset: u8) -> bool {
-    POSITION_FIELD_RANGES.iter().any(|&(lo, hi)| offset >= lo && offset <= hi)
+    POSITION_FIELD_RANGES.iter().any(|&(lo, hi)| (lo..=hi).contains(&offset))
 }
 
 fn find_kart_slot_with_rank(ram: &[u8], target_rank_raw: u16) -> Option<u8> {
@@ -139,7 +274,7 @@ fn apply_position_to_slot(ram: &mut [u8], target_kart_slot: u8, desired_start_po
         );
         return;
     }
-    
+
     let target_rank_raw = ((desired_start_pos - 1) as u16) * 2;
 
     let Some(source_slot) = find_kart_slot_with_rank(ram, target_rank_raw) else {
@@ -190,6 +325,24 @@ fn remove_unoccupied_cpu(ram: &mut [u8], kart_slot: u8) -> Option<(u16, u16)> {
     Some((original_flag, original_screen))
 }
 
+pub fn remove_unoccupied_cpus(ram: &mut [u8], occupied_kart_slots: &[u8]) -> HashMap<u8, (u16, u16)> {
+    let mut occupied = [false; wram::NUM_KART_SLOTS as usize];
+    for &kart_slot in occupied_kart_slots {
+        if (kart_slot as usize) < occupied.len() {
+            occupied[kart_slot as usize] = true;
+        }
+    }
+    let mut disabled = HashMap::new();
+    for kart_slot in 0..wram::NUM_KART_SLOTS {
+        if !occupied[kart_slot as usize] {
+            if let Some(original) = remove_unoccupied_cpu(ram, kart_slot) {
+                disabled.insert(kart_slot, original);
+            }
+        }
+    }
+    disabled
+}
+
 pub fn restore_cpu_slot(ram: &mut [u8], kart_slot: u8, original: (u16, u16)) {
     let base = wram::racer_offset(kart_slot);
     if base + 0xD4 > ram.len() {
@@ -203,6 +356,25 @@ pub fn restore_cpu_slot(ram: &mut [u8], kart_slot: u8, original: (u16, u16)) {
     let screen_bytes = original_screen.to_le_bytes();
     ram[base + 0xD2] = screen_bytes[0];
     ram[base + 0xD3] = screen_bytes[1];
+}
+
+pub fn run_startup_placement(ram: &mut [u8], my_start_pos: u8, others: &[(u8, u8)]) {
+    apply_position_to_slot(ram, wram::LOCAL_KART_SLOT, my_start_pos);
+
+    for &(their_kart_slot, their_start_pos) in others {
+        if their_kart_slot == wram::LOCAL_KART_SLOT {
+            eprintln!(
+                "writer: run_startup_placement: 'others' included kart slot {} (LOCAL_KART_SLOT) -- skipping, this should never happen",
+                wram::LOCAL_KART_SLOT
+            );
+            continue;
+        }
+        apply_position_to_slot(ram, their_kart_slot, their_start_pos);
+    }
+
+    let occupied_kart_slots: Vec<u8> =
+        std::iter::once(wram::LOCAL_KART_SLOT).chain(others.iter().map(|&(slot, _)| slot)).collect();
+    remove_unoccupied_cpus(ram, &occupied_kart_slots);
 }
 
 fn apply_non_collision(ram: &mut [u8], kart_slot: u8) {
@@ -236,11 +408,8 @@ fn all_humans_finished(ram: &[u8], human_kart_slots: &[u8]) -> bool {
 }
 
 const CHECKPOINT_OFFSET: usize = 0xC0;
-
 const FINISH_QUEUE_BASE: usize = 0x0E90;
-
 const FINISH_QUEUE_COUNT_ADDR: usize = 0x0E8E;
-
 const FINISH_QUEUE_CAPACITY: u16 = 8;
 
 fn force_finish_cpu(ram: &mut [u8], kart_slot: u8) -> bool {
@@ -281,7 +450,7 @@ fn force_finish_cpu(ram: &mut [u8], kart_slot: u8) -> bool {
     true
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct AutoFinisher {
     done: bool,
 }
@@ -302,7 +471,7 @@ impl AutoFinisher {
         if !all_humans_finished(ram, human_kart_slots) {
             return;
         }
-        
+
         let mut all_succeeded = true;
         for kart_slot in 0..wram::NUM_KART_SLOTS {
             if human_kart_slots.contains(&kart_slot) {
@@ -334,51 +503,12 @@ impl AutoFinisher {
         self.done = all_succeeded;
     }
 }
-pub fn remove_unoccupied_cpus(ram: &mut [u8], occupied_kart_slots: &[u8]) -> HashMap<u8, (u16, u16)> {
-    let mut occupied = [false; wram::NUM_KART_SLOTS as usize];
-    for &kart_slot in occupied_kart_slots {
-        if (kart_slot as usize) < occupied.len() {
-            occupied[kart_slot as usize] = true;
-        }
-    }
-    let mut disabled = HashMap::new();
-    for kart_slot in 0..wram::NUM_KART_SLOTS {
-        if !occupied[kart_slot as usize] {
-            if let Some(original) = remove_unoccupied_cpu(ram, kart_slot) {
-                disabled.insert(kart_slot, original);
-            }
-        }
-    }
-    disabled
-}
-
-pub fn run_startup_placement(ram: &mut [u8], my_start_pos: u8, others: &[(u8, u8)]) {
-    
-    apply_position_to_slot(ram, wram::LOCAL_KART_SLOT, my_start_pos);
-
-    for &(their_kart_slot, their_start_pos) in others {
-        if their_kart_slot == wram::LOCAL_KART_SLOT {
-            eprintln!(
-                "writer: run_startup_placement: 'others' included kart slot {} (LOCAL_KART_SLOT) -- skipping, this should never happen",
-                wram::LOCAL_KART_SLOT
-            );
-            continue;
-        }
-        apply_position_to_slot(ram, their_kart_slot, their_start_pos);
-    }
-
-    let occupied_kart_slots: Vec<u8> =
-        std::iter::once(wram::LOCAL_KART_SLOT).chain(others.iter().map(|&(slot, _)| slot)).collect();
-    remove_unoccupied_cpus(ram, &occupied_kart_slots);
-}
 
 const PACKET_TYPE_RACER: u8 = b'R';
-
 const PACKET_HEADER_LEN: usize = 1 + 1 + 2 + 2;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct RacerPacket {
-    
     pub server_slot: wram::ServerSlot,
     pub sequence: u16,
     pub payload: Vec<u8>,
@@ -430,9 +560,9 @@ pub fn decode_packet(bytes: &[u8]) -> Option<RacerPacket> {
     Some(RacerPacket { server_slot, sequence, payload: payload.to_vec() })
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct SequenceGate {
-    last_seen: std::collections::HashMap<wram::ServerSlot, u16>,
+    last_seen: HashMap<wram::ServerSlot, u16>,
 }
 
 impl SequenceGate {
@@ -451,24 +581,16 @@ impl SequenceGate {
     }
 }
 
-use std::collections::HashMap;
-use std::net::{SocketAddr, UdpSocket};
-
 pub struct RacerMirrorSocket {
     socket: UdpSocket,
     server_addr: SocketAddr,
     token: [u8; 8],
-    
-    peer_addrs: HashMap<wram::ServerSlot, SocketAddr>,
     sequence_gate: SequenceGate,
-    
     next_sequence: u16,
-    
-    received_this_race: std::collections::HashSet<wram::ServerSlot>,
+    received_this_race: HashSet<wram::ServerSlot>,
 }
 
 impl RacerMirrorSocket {
-    
     pub fn new(bind_addr: &str, server_addr: &str, token: [u8; 8]) -> std::io::Result<Self> {
         let socket = UdpSocket::bind(bind_addr)?;
         socket.set_nonblocking(true)?;
@@ -479,10 +601,9 @@ impl RacerMirrorSocket {
             socket,
             server_addr,
             token,
-            peer_addrs: HashMap::new(),
             sequence_gate: SequenceGate::new(),
             next_sequence: 0,
-            received_this_race: std::collections::HashSet::new(),
+            received_this_race: HashSet::new(),
         })
     }
 
@@ -512,7 +633,7 @@ impl RacerMirrorSocket {
     pub fn poll_and_apply(&mut self, ram: &mut [u8], slot_map: &wram::SlotMap, our_server_slot: wram::ServerSlot) {
         let mut buf = [0u8; 2048];
         loop {
-            let (len, from) = match self.socket.recv_from(&mut buf) {
+            let (len, _) = match self.socket.recv_from(&mut buf) {
                 Ok(v) => v,
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
                 Err(e) => {
@@ -526,678 +647,598 @@ impl RacerMirrorSocket {
             if packet.server_slot == our_server_slot {
                 continue;
             }
-            self.peer_addrs.insert(packet.server_slot, from);
             if !self.sequence_gate.accept(packet.server_slot, packet.sequence) {
                 continue;
             }
-            match slot_map.get(packet.server_slot) {
-                Some(kart_slot) => {
-                    if self.received_this_race.insert(packet.server_slot) {
-                        
-                        eprintln!(
-                            "writer: first racer-mirror packet for server_slot {} -- Z-pin hide ends, applying real data",
-                            packet.server_slot
-                        );
-                    }
-                    apply_incoming_racer_data(ram, kart_slot, &packet.payload);
-                }
-                None => {
-                    
-                }
+            if let Some(kart_slot) = slot_map.get(packet.server_slot) {
+                self.received_this_race.insert(packet.server_slot);
+                apply_incoming_racer_data(ram, kart_slot, &packet.payload);
             }
         }
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+struct DecodedThrow {
+    item_type: u8,
+    alt_direction: bool,
+}
 
-    #[test]
-    fn sets_bit_without_disturbing_others() {
-        let mut ram = vec![0u8; wram::WRAM_SIZE];
-        ram[wram::MAILBOX_ADDR] = wram::ALL_READY_BIT;
-        write_mailbox_bit(&mut ram, wram::CAN_ENTER_RACE_BIT, true);
-        assert_eq!(ram[wram::MAILBOX_ADDR], wram::ALL_READY_BIT | wram::CAN_ENTER_RACE_BIT);
+fn item_type_from_field_value(raw: u8) -> Option<DecodedThrow> {
+    if raw % 2 != 0 {
+        return None;
     }
+    let mut y = raw / 2;
 
-    #[test]
-    fn clears_bit_without_disturbing_others() {
-        let mut ram = vec![0u8; wram::WRAM_SIZE];
-        ram[wram::MAILBOX_ADDR] = wram::ALL_READY_BIT | wram::CAN_ENTER_RACE_BIT;
-        write_mailbox_bit(&mut ram, wram::CAN_ENTER_RACE_BIT, false);
-        assert_eq!(ram[wram::MAILBOX_ADDR], wram::ALL_READY_BIT);
-    }
-
-    #[test]
-    fn mailbox_write_out_of_bounds_does_not_panic() {
-        let mut ram = vec![0u8; 4];
-        write_mailbox_bit(&mut ram, wram::ALL_READY_BIT, true);
-    }
-
-    #[test]
-    fn rng_write_is_little_endian() {
-        let mut ram = vec![0u8; wram::WRAM_SIZE];
-        write_rng_seed(&mut ram, 0xBEEF);
-        assert_eq!(ram[wram::RNG_ADDR], 0xEF);
-        assert_eq!(ram[wram::RNG_ADDR + 1], 0xBE);
-    }
-
-    #[test]
-    fn rng_write_out_of_bounds_does_not_panic() {
-        let mut ram = vec![0u8; 4];
-        write_rng_seed(&mut ram, 0x1234);
-    }
-
-    #[test]
-    fn excluded_offsets_match_lua_ranges() {
-        
-        for &off in &[0x00u8, 0x13, 0x14, 0x15, 0x2C, 0x3F, 0x40, 0x41, 0x74, 0x7F, 0x98, 0x9F, 0xA4, 0xA5, 0xB6, 0xBD, 0xD2, 0xD3, 0xDE, 0xDF, 0xE6] {
-            assert!(is_excluded(off), "offset {off:#x} should be excluded");
+    let alt_direction = y >= 6;
+    if alt_direction {
+        if y > 7 {
+            return None;
         }
-        
-        for &off in &[0x10u8.wrapping_add(0x10), 0x20, 0x50, 0x60, 0x90, 0xC0, 0xF0] {
-            assert!(!is_excluded(off), "offset {off:#x} should NOT be excluded");
-        }
+        y -= 6;
     }
 
-    #[test]
-    fn apply_incoming_writes_non_excluded_bytes() {
-        let mut ram = vec![0u8; wram::WRAM_SIZE];
-        let payload = [0xAAu8; wram::RACER_STRUCT_SIZE];
-        apply_incoming_racer_data(&mut ram, 1, &payload);
-        let base = wram::racer_offset(1);
-        
-        assert_eq!(ram[base + 0x20], 0xAA);
+    if wram::is_valid_item_type(y) {
+        Some(DecodedThrow { item_type: y, alt_direction })
+    } else {
+        None
+    }
+}
+
+fn rd16(ram: &[u8], addr: usize) -> Option<u16> {
+    Some(u16::from_le_bytes([*ram.get(addr)?, *ram.get(addr + 1)?]))
+}
+
+fn wr16(ram: &mut [u8], addr: usize, v: u16) -> bool {
+    if addr + 1 >= ram.len() {
+        return false;
+    }
+    let b = v.to_le_bytes();
+    ram[addr] = b[0];
+    ram[addr + 1] = b[1];
+    true
+}
+
+#[derive(Clone, Copy)]
+struct ItemSlotView {
+    base: usize,
+    occupied: bool,
+    owner_raw: u16,
+    type_raw: u8,
+    collision_timer: u16,
+}
+
+impl ItemSlotView {
+    fn is_hit(&self) -> bool {
+        self.occupied && self.collision_timer & wram::ITEM_HIT_FLAG != 0
     }
 
-    #[test]
-    fn apply_incoming_skips_excluded_bytes() {
-        let mut ram = vec![0xFFu8; wram::WRAM_SIZE];
-        let payload = [0xAAu8; wram::RACER_STRUCT_SIZE];
-        apply_incoming_racer_data(&mut ram, 1, &payload);
-        let base = wram::racer_offset(1);
-        
-        assert_eq!(ram[base + 0xD2], 0xFF);
-    }
-
-    #[test]
-    fn apply_incoming_never_writes_kart_slot_zero_accidentally() {
-        
-        let mut ram = vec![0x55u8; wram::WRAM_SIZE];
-        let payload = [0xAAu8; wram::RACER_STRUCT_SIZE];
-        apply_incoming_racer_data(&mut ram, 1, &payload);
-        let local_base = wram::racer_offset(wram::LOCAL_KART_SLOT);
-        assert!(ram[local_base..local_base + wram::RACER_STRUCT_SIZE].iter().all(|&b| b == 0x55));
-    }
-
-    #[test]
-    fn apply_incoming_rejects_wrong_size_payload() {
-        let mut ram = vec![0u8; wram::WRAM_SIZE];
-        let short_payload = [0xAAu8; 10];
-        apply_incoming_racer_data(&mut ram, 1, &short_payload);
-        let base = wram::racer_offset(1);
-        assert!(ram[base..base + wram::RACER_STRUCT_SIZE].iter().all(|&b| b == 0));
-    }
-
-    #[test]
-    fn extract_reads_local_racer_struct() {
-        let mut ram = vec![0u8; wram::WRAM_SIZE];
-        let base = wram::racer_offset(wram::LOCAL_KART_SLOT);
-        ram[base] = 0x42;
-        ram[base + 0xFF] = 0x99;
-        let out = extract_local_racer_data(&ram);
-        assert_eq!(out[0], 0x42);
-        assert_eq!(out[0xFF], 0x99);
-    }
-
-    #[test]
-    fn extract_does_not_exclude_anything() {
-        
-        let mut ram = vec![0u8; wram::WRAM_SIZE];
-        let base = wram::racer_offset(wram::LOCAL_KART_SLOT);
-        ram[base + 0xD2] = 0x7E;
-        let out = extract_local_racer_data(&ram);
-        assert_eq!(out[0xD2], 0x7E);
-    }
-
-    fn set_rank(ram: &mut [u8], kart_slot: u8, rank_1_indexed: u8) {
-        let base = wram::racer_offset(kart_slot);
-        let raw = ((rank_1_indexed - 1) as u16) * 2;
-        let bytes = raw.to_le_bytes();
-        ram[base + 0x40] = bytes[0];
-        ram[base + 0x41] = bytes[1];
-    }
-
-    #[test]
-    fn position_swap_moves_position_fields_not_identity_fields() {
-        let mut ram = vec![0u8; wram::WRAM_SIZE];
-        
-        set_rank(&mut ram, 0, 8);
-        
-        set_rank(&mut ram, 3, 2);
-
-        let local_base = wram::racer_offset(0);
-        let other_base = wram::racer_offset(3);
-
-        ram[local_base + 0x18] = 0x11;
-        ram[other_base + 0x18] = 0x22;
-        
-        ram[local_base + 0x12] = 0x04;
-        ram[other_base + 0x12] = 0x0E;
-
-        apply_position_to_slot(&mut ram, wram::LOCAL_KART_SLOT, 2);
-
-        assert_eq!(ram[local_base + 0x18], 0x22);
-        assert_eq!(ram[other_base + 0x18], 0x11);
-        
-        assert_eq!(u16::from_le_bytes([ram[local_base + 0x40], ram[local_base + 0x41]]), 2);
-        
-        assert_eq!(ram[local_base + 0x12], 0x04);
-        assert_eq!(ram[other_base + 0x12], 0x0E);
-    }
-
-    #[test]
-    fn position_swap_is_a_noop_when_target_already_holds_that_rank() {
-        let mut ram = vec![0u8; wram::WRAM_SIZE];
-        set_rank(&mut ram, 0, 8);
-        let local_base = wram::racer_offset(0);
-        ram[local_base + 0x18] = 0x99;
-
-        apply_position_to_slot(&mut ram, wram::LOCAL_KART_SLOT, 8);
-
-        assert_eq!(ram[local_base + 0x18], 0x99, "no-op: nothing should have moved");
-    }
-
-    #[test]
-    fn position_swap_missing_rank_does_not_panic_or_write() {
-        let mut ram = vec![0u8; wram::WRAM_SIZE];
-        let local_base = wram::racer_offset(0);
-        ram[local_base + 0x18] = 0x55;
-
-        apply_position_to_slot(&mut ram, wram::LOCAL_KART_SLOT, 3);
-
-        assert_eq!(ram[local_base + 0x18], 0x55, "should be left untouched");
-    }
-
-    #[test]
-    fn position_swap_out_of_range_does_not_panic() {
-        let mut ram = vec![0u8; wram::WRAM_SIZE];
-        apply_position_to_slot(&mut ram, wram::LOCAL_KART_SLOT, 0);
-        apply_position_to_slot(&mut ram, wram::LOCAL_KART_SLOT, 9);
-    }
-
-    #[test]
-    fn remove_unoccupied_cpu_stamps_the_captured_signature() {
-        let mut ram = vec![0u8; wram::WRAM_SIZE];
-        let base = wram::racer_offset(5);
-        
-        ram[base + 0x10] = 0x00;
-        ram[base + 0x11] = 0x20;
-        ram[base + 0xD2] = 0x00;
-        ram[base + 0xD3] = 0x00;
-
-        remove_unoccupied_cpu(&mut ram, 5);
-
-        assert_eq!(u16::from_le_bytes([ram[base + 0x10], ram[base + 0x11]]), 0x0000);
-        assert_eq!(u16::from_le_bytes([ram[base + 0xD2], ram[base + 0xD3]]), 0xFFFF);
-    }
-
-    #[test]
-    fn startup_placement_runs_all_three_steps() {
-        let mut ram = vec![0u8; wram::WRAM_SIZE];
-        
-        for kart_slot in 0..wram::NUM_KART_SLOTS {
-            let rank = if kart_slot == 0 { 8 } else { kart_slot };
-            set_rank(&mut ram, kart_slot, rank);
-            
-            ram[wram::racer_offset(kart_slot) + 0x11] = 0x20;
-        }
-
-        let others = [(2u8, 1u8)];
-        run_startup_placement(&mut ram, 3, &others);
-
-        let local_base = wram::racer_offset(0);
-        assert_eq!(u16::from_le_bytes([ram[local_base + 0x40], ram[local_base + 0x41]]), 4);
-
-        let other_base = wram::racer_offset(2);
-        assert_eq!(u16::from_le_bytes([ram[other_base + 0x40], ram[other_base + 0x41]]), 0);
-
-        for kart_slot in 0..wram::NUM_KART_SLOTS {
-            let base = wram::racer_offset(kart_slot);
-            let screen = u16::from_le_bytes([ram[base + 0xD2], ram[base + 0xD3]]);
-            if kart_slot == 0 || kart_slot == 2 {
-                assert_ne!(screen, 0xFFFF, "kart slot {kart_slot} is occupied and should NOT be removed");
-            } else {
-                assert_eq!(screen, 0xFFFF, "kart slot {kart_slot} is unoccupied and should be removed");
-            }
+    fn owner_kart_slot(&self) -> Option<u8> {
+        if self.occupied {
+            wram::kart_slot_from_owner_addr(self.owner_raw)
+        } else {
+            None
         }
     }
 
-    #[test]
-    fn remove_unoccupied_cpus_re_stamps_a_cpu_that_drifted_back_to_occupied() {
-        
-        let mut ram = vec![0u8; wram::WRAM_SIZE];
-        let base = wram::racer_offset(4);
-        ram[base + 0x10] = 0x00;
-        ram[base + 0x11] = 0x20;
-        ram[base + 0xD2] = 0x00;
-        ram[base + 0xD3] = 0x00;
-
-        let occupied_kart_slots = [wram::LOCAL_KART_SLOT];
-        remove_unoccupied_cpus(&mut ram, &occupied_kart_slots);
-
-        assert_eq!(u16::from_le_bytes([ram[base + 0x10], ram[base + 0x11]]), 0x0000);
-        assert_eq!(u16::from_le_bytes([ram[base + 0xD2], ram[base + 0xD3]]), 0xFFFF);
+    fn is_owned_by(&self, kart_slot: u8) -> bool {
+        let target_base = wram::racer_offset(kart_slot) as u16;
+        let target_end = target_base + wram::RACER_STRUCT_SIZE as u16;
+        self.occupied && self.owner_raw >= target_base && self.owner_raw < target_end
     }
+}
 
-    #[test]
-    fn remove_unoccupied_cpus_leaves_occupied_slots_alone() {
-        let mut ram = vec![0u8; wram::WRAM_SIZE];
-        let local_base = wram::racer_offset(wram::LOCAL_KART_SLOT);
-        let remote_base = wram::racer_offset(3);
-        ram[local_base + 0x11] = 0x80;
-        ram[remote_base + 0x11] = 0x80;
-        ram[local_base + 0xD2] = 0x00;
-        ram[remote_base + 0xD2] = 0x02;
-
-        remove_unoccupied_cpus(&mut ram, &[wram::LOCAL_KART_SLOT, 3]);
-
-        assert_ne!(u16::from_le_bytes([ram[local_base + 0xD2], ram[local_base + 0xD3]]), 0xFFFF);
-        assert_ne!(u16::from_le_bytes([ram[remote_base + 0xD2], ram[remote_base + 0xD3]]), 0xFFFF);
+fn read_item_slot(ram: &[u8], slot_index: usize, context: &str) -> Option<ItemSlotView> {
+    let base = wram::ITEM_SLOTS_ADDR + slot_index * wram::ITEM_SLOT_SIZE;
+    if base + wram::ITEM_SLOT_SIZE > ram.len() {
+        eprintln!("writer: {context}: item slot {slot_index} falls outside WRAM, skipping");
+        return None;
     }
+    Some(ItemSlotView {
+        base,
+        occupied: rd16(ram, base + wram::ITEM_SLOT_OCCUPIED_OFFSET).unwrap_or(0) & wram::ITEM_SLOT_OCCUPIED_BIT != 0,
+        owner_raw: rd16(ram, base + wram::ITEM_SLOT_OWNER_OFFSET).unwrap_or(0),
+        type_raw: ram[base + wram::ITEM_SLOT_TYPE_OFFSET],
+        collision_timer: rd16(ram, base + wram::ITEM_SLOT_COLLISION_TIMER_OFFSET).unwrap_or(0),
+    })
+}
 
-    #[test]
-    fn remove_unoccupied_cpus_is_idempotent() {
-        let mut ram = vec![0u8; wram::WRAM_SIZE];
-        let occupied_kart_slots = [wram::LOCAL_KART_SLOT];
-        remove_unoccupied_cpus(&mut ram, &occupied_kart_slots);
-        let after_first = ram.clone();
-        remove_unoccupied_cpus(&mut ram, &occupied_kart_slots);
-        assert_eq!(ram, after_first, "calling it again with the same occupied set should change nothing further");
+fn find_item_slot_owned_by(ram: &[u8], kart_slot: u8, context: &str) -> Option<ItemSlotView> {
+    if kart_slot >= wram::NUM_KART_SLOTS {
+        eprintln!("writer: {context}: kart_slot {kart_slot} out of range -- ignoring");
+        return None;
     }
+    (0..wram::NUM_ITEM_SLOTS)
+        .filter_map(|slot_index| read_item_slot(ram, slot_index, context))
+        .find(|slot| slot.is_owned_by(kart_slot))
+}
 
-    #[test]
-    fn non_collision_pins_z_to_max_for_cpu_slots_only() {
-        let mut ram = vec![0u8; wram::WRAM_SIZE];
-        let human_kart_slots = [wram::LOCAL_KART_SLOT, 2];
-
-        apply_non_collision_to_cpus(&mut ram, &human_kart_slots);
-
-        for kart_slot in 0..wram::NUM_KART_SLOTS {
-            let base = wram::racer_offset(kart_slot);
-            let z = u16::from_le_bytes([
-                ram[base + wram::Z_POSITION_OFFSET],
-                ram[base + wram::Z_POSITION_OFFSET + 1],
-            ]);
-            if human_kart_slots.contains(&kart_slot) {
-                assert_eq!(z, 0, "human slot {kart_slot} should be untouched");
-            } else {
-                assert_eq!(z, wram::Z_POSITION_MAX, "CPU slot {kart_slot} should be pinned to max Z");
-            }
+fn remove_item_like_engine(ram: &mut [u8], base: usize) {
+    const DP_LIMIT: usize = 0x2000;
+    fn rd(ram: &[u8], a: usize) -> u16 {
+        if a + 1 < DP_LIMIT && a + 1 < ram.len() {
+            u16::from_le_bytes([ram[a], ram[a + 1]])
+        } else {
+            0
         }
     }
-
-    fn set_current_lap_byte(ram: &mut [u8], kart_slot: u8, value: u8) {
-        let base = wram::racer_offset(kart_slot);
-        ram[base + wram::CURRENT_LAP_OFFSET] = value;
-    }
-
-    #[test]
-    fn auto_finish_does_nothing_until_all_humans_finish() {
-        let mut ram = vec![0u8; wram::WRAM_SIZE];
-        let human_kart_slots = [wram::LOCAL_KART_SLOT, 2];
-        set_current_lap_byte(&mut ram, wram::LOCAL_KART_SLOT, wram::FINISHED_LAP_VALUE);
-        set_current_lap_byte(&mut ram, 2, 0x82);
-        set_current_lap_byte(&mut ram, 5, 0x81);
-
-        let mut finisher = AutoFinisher::new();
-        finisher.poll(&mut ram, &human_kart_slots);
-
-        assert_eq!(
-            ram[wram::racer_offset(5) + wram::CURRENT_LAP_OFFSET],
-            0x81,
-            "should not touch any CPU while a human is still racing"
-        );
-        assert_eq!(
-            u16::from_le_bytes([ram[FINISH_QUEUE_COUNT_ADDR], ram[FINISH_QUEUE_COUNT_ADDR + 1]]),
-            0,
-            "finish queue should stay empty while a human is still racing"
-        );
-    }
-
-    #[test]
-    fn auto_finish_sets_0x85_on_every_cpu_once_all_humans_are_done() {
-        let mut ram = vec![0u8; wram::WRAM_SIZE];
-        let human_kart_slots = [wram::LOCAL_KART_SLOT, 2];
-        for &slot in &human_kart_slots {
-            set_current_lap_byte(&mut ram, slot, wram::FINISHED_LAP_VALUE);
+    fn wr(ram: &mut [u8], a: usize, v: u16) {
+        if a + 1 < DP_LIMIT && a + 1 < ram.len() {
+            ram[a..a + 2].copy_from_slice(&v.to_le_bytes());
         }
-        for kart_slot in 0..wram::NUM_KART_SLOTS {
-            if human_kart_slots.contains(&kart_slot) {
+    }
+    let unlink = |ram: &mut [u8], n: usize, p: usize| {
+        let next = rd(ram, base + n) as usize;
+        let prev = rd(ram, base + p) as usize;
+        wr(ram, prev + n, next as u16);
+        wr(ram, next + p, prev as u16);
+    };
+
+    unlink(ram, 0x00, 0x02);
+    let occupied = rd(ram, base + wram::ITEM_SLOT_OCCUPIED_OFFSET) & wram::ITEM_SLOT_OCCUPIED_BIT != 0;
+    unlink(ram, 0x08, 0x0A);
+    if occupied {
+        wr(ram, base + wram::ITEM_SLOT_OCCUPIED_OFFSET, 0);
+        unlink(ram, 0x60, 0x62);
+    }
+}
+
+pub fn item_owned_by_is_in_hit_animation(ram: &[u8], kart_slot: u8) -> bool {
+    if kart_slot >= wram::NUM_KART_SLOTS {
+        return false;
+    }
+    (0..wram::NUM_ITEM_SLOTS)
+        .filter_map(|slot_index| read_item_slot(ram, slot_index, "item_owned_by_is_in_hit_animation"))
+        .any(|slot| slot.is_owned_by(kart_slot) && slot.is_hit())
+}
+
+pub fn force_free_item_slot_owned_by(ram: &mut [u8], kart_slot: u8) -> Option<usize> {
+    let slot = find_item_slot_owned_by(ram, kart_slot, "force_free_item_slot_owned_by")?;
+    remove_item_like_engine(ram, slot.base);
+    Some((slot.base - wram::ITEM_SLOTS_ADDR) / wram::ITEM_SLOT_SIZE)
+}
+
+pub fn force_item_into_hit_animation_owned_by(ram: &mut [u8], kart_slot: u8) -> Option<usize> {
+    let slot = find_item_slot_owned_by(ram, kart_slot, "force_item_into_hit_animation_owned_by")?;
+    if slot.is_hit() {
+        return None;
+    }
+    wr16(ram, slot.base + wram::ITEM_SLOT_Z_VELOCITY_OFFSET, wram::ITEM_HIT_Z_VELOCITY_KICK);
+    wr16(ram, slot.base + wram::ITEM_SLOT_COLLISION_TIMER_OFFSET, wram::ITEM_HIT_COLLISION_TIMER_VALUE);
+    Some((slot.base - wram::ITEM_SLOTS_ADDR) / wram::ITEM_SLOT_SIZE)
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct LocalThrow {
+    pub item_type: u8,
+    pub alt_direction: bool,
+    pub evicted_remote_kart_slot: Option<u8>,
+}
+
+#[derive(Default)]
+pub struct ThrowWatcher {
+    prev_owner_kart_slot: [Option<u8>; wram::NUM_ITEM_SLOTS],
+    prev_type_raw: [u8; wram::NUM_ITEM_SLOTS],
+}
+
+impl ThrowWatcher {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn poll(&mut self, ram: &[u8]) -> Option<LocalThrow> {
+        let mut result = None;
+        for slot_index in 0..wram::NUM_ITEM_SLOTS {
+            let Some(slot) = read_item_slot(ram, slot_index, "ThrowWatcher::poll") else { continue };
+
+            let cur_owner = slot.owner_kart_slot();
+            let cur_type_raw = slot.type_raw;
+
+            let prev_owner = self.prev_owner_kart_slot[slot_index];
+            let prev_type_raw = self.prev_type_raw[slot_index];
+
+            let is_new_throw_by_us = cur_owner == Some(wram::LOCAL_KART_SLOT)
+                && (prev_owner != Some(wram::LOCAL_KART_SLOT) || prev_type_raw != cur_type_raw);
+
+            self.prev_owner_kart_slot[slot_index] = cur_owner;
+            self.prev_type_raw[slot_index] = cur_type_raw;
+
+            if !is_new_throw_by_us {
                 continue;
             }
-            set_current_lap_byte(&mut ram, kart_slot, 0x82);
-            
-            ram[wram::racer_offset(kart_slot) + CHECKPOINT_OFFSET] = 0x07;
+
+            match item_type_from_field_value(cur_type_raw) {
+                Some(DecodedThrow { item_type, alt_direction }) => {
+                    let evicted_remote_kart_slot = match prev_owner {
+                        Some(k) if k != wram::LOCAL_KART_SLOT => Some(k),
+                        _ => None,
+                    };
+                    result = Some(LocalThrow { item_type, alt_direction, evicted_remote_kart_slot });
+                }
+                None => eprintln!(
+                    "writer: ThrowWatcher::poll: slot {slot_index} newly thrown by us, but +0x70={cur_type_raw:#04x} isn't a recognized item type -- not reporting"
+                ),
+            }
         }
+        result
+    }
+}
 
-        let mut finisher = AutoFinisher::new();
-        finisher.poll(&mut ram, &human_kart_slots);
+#[derive(Default)]
+pub struct DespawnWatcher {
+    prev_hit: [bool; wram::NUM_ITEM_SLOTS],
+    suppressed: [bool; wram::NUM_ITEM_SLOTS],
+}
 
-        for kart_slot in 0..wram::NUM_KART_SLOTS {
-            let value = ram[wram::racer_offset(kart_slot) + wram::CURRENT_LAP_OFFSET];
-            assert_eq!(value, wram::FINISHED_LAP_VALUE, "kart slot {kart_slot} should read 0x85 after auto-finish");
+impl DespawnWatcher {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn suppress_slot(&mut self, slot_index: usize) {
+        if slot_index < wram::NUM_ITEM_SLOTS {
+            self.suppressed[slot_index] = true;
         }
     }
 
-    #[test]
-    fn auto_finish_zeroes_checkpoint_byte_alongside_lap_byte() {
-        let mut ram = vec![0u8; wram::WRAM_SIZE];
-        let human_kart_slots = [wram::LOCAL_KART_SLOT];
-        set_current_lap_byte(&mut ram, wram::LOCAL_KART_SLOT, wram::FINISHED_LAP_VALUE);
-        let cpu_base = wram::racer_offset(1);
-        ram[cpu_base + CHECKPOINT_OFFSET] = 0x0A;
+    pub fn poll(&mut self, ram: &[u8]) -> Vec<u8> {
+        let mut despawning = Vec::new();
+        for slot_index in 0..wram::NUM_ITEM_SLOTS {
+            let Some(slot) = read_item_slot(ram, slot_index, "DespawnWatcher::poll") else { continue };
 
-        let mut finisher = AutoFinisher::new();
-        finisher.poll(&mut ram, &human_kart_slots);
+            let cur_owner = slot.owner_kart_slot();
+            let cur_hit = slot.is_hit();
+            let prev_hit = self.prev_hit[slot_index];
+            let was_suppressed = std::mem::take(&mut self.suppressed[slot_index]);
 
-        assert_eq!(ram[cpu_base + CHECKPOINT_OFFSET], 0x00, "checkpoint must be zeroed alongside the lap byte");
+            let just_hit = cur_hit && !prev_hit;
+
+            if just_hit && !was_suppressed {
+                match cur_owner {
+                    Some(owner) => despawning.push(owner),
+                    None => eprintln!(
+                        "writer: DespawnWatcher::poll: item slot {slot_index} was hit but has no resolvable owner -- not reporting"
+                    ),
+                }
+            }
+
+            self.prev_hit[slot_index] = cur_hit;
+        }
+        despawning
+    }
+}
+
+#[derive(Default)]
+pub struct ConsumeWatcher {
+    prev_owner_kart_slot: [Option<u8>; wram::NUM_ITEM_SLOTS],
+    suppressed: [bool; wram::NUM_ITEM_SLOTS],
+}
+
+impl ConsumeWatcher {
+    pub fn new() -> Self {
+        Self::default()
     }
 
-    #[test]
-    fn auto_finish_enqueues_every_force_finished_cpu_onto_the_finish_queue() {
-        let mut ram = vec![0u8; wram::WRAM_SIZE];
-        
-        let human_kart_slots = [wram::LOCAL_KART_SLOT];
-        set_current_lap_byte(&mut ram, wram::LOCAL_KART_SLOT, wram::FINISHED_LAP_VALUE);
-
-        let mut finisher = AutoFinisher::new();
-        finisher.poll(&mut ram, &human_kart_slots);
-
-        let count = u16::from_le_bytes([ram[FINISH_QUEUE_COUNT_ADDR], ram[FINISH_QUEUE_COUNT_ADDR + 1]]);
-        assert_eq!(count, 14, "7 force-finished CPUs * 2 bytes/entry = 14");
-
-        let mut seen: Vec<u16> = Vec::new();
-        for i in 0..(count as usize / 2) {
-            let slot_addr = FINISH_QUEUE_BASE + i * 2;
-            let entry = u16::from_le_bytes([ram[slot_addr], ram[slot_addr + 1]]);
-            seen.push(entry);
+    pub fn suppress_slot(&mut self, slot_index: usize) {
+        if slot_index < wram::NUM_ITEM_SLOTS {
+            self.suppressed[slot_index] = true;
         }
-        seen.sort_unstable();
-        let mut expected: Vec<u16> = (1..wram::NUM_KART_SLOTS).map(|slot| wram::racer_offset(slot) as u16).collect();
-        expected.sort_unstable();
-        assert_eq!(seen, expected, "every non-human kart slot's struct offset should be queued exactly once");
     }
 
-    #[test]
-    fn auto_finish_does_not_double_enqueue_already_finished_cpus() {
-        let mut ram = vec![0u8; wram::WRAM_SIZE];
-        let human_kart_slots = [wram::LOCAL_KART_SLOT, 2];
-        for &slot in &human_kart_slots {
-            set_current_lap_byte(&mut ram, slot, wram::FINISHED_LAP_VALUE);
+    pub fn poll(&mut self, ram: &[u8]) -> Vec<u8> {
+        let mut consumed = Vec::new();
+        for slot_index in 0..wram::NUM_ITEM_SLOTS {
+            let Some(slot) = read_item_slot(ram, slot_index, "ConsumeWatcher::poll") else { continue };
+            let cur_owner = slot.owner_kart_slot();
+
+            let prev_owner = self.prev_owner_kart_slot[slot_index];
+            let was_suppressed = std::mem::take(&mut self.suppressed[slot_index]);
+
+            if let Some(owner) = prev_owner {
+                if cur_owner.is_none() && !was_suppressed {
+                    consumed.push(owner);
+                }
+            }
+
+            self.prev_owner_kart_slot[slot_index] = cur_owner;
         }
-        
-        set_current_lap_byte(&mut ram, 1, wram::FINISHED_LAP_VALUE);
+        consumed
+    }
+}
 
-        let mut finisher = AutoFinisher::new();
-        finisher.poll(&mut ram, &human_kart_slots);
-
-        let count = u16::from_le_bytes([ram[FINISH_QUEUE_COUNT_ADDR], ram[FINISH_QUEUE_COUNT_ADDR + 1]]);
-        
-        assert_eq!(count, 10, "already-finished kart slot 1 should not be re-enqueued");
-        let queued_offsets: Vec<u16> = (0..(count as usize / 2))
-            .map(|i| {
-                let slot_addr = FINISH_QUEUE_BASE + i * 2;
-                u16::from_le_bytes([ram[slot_addr], ram[slot_addr + 1]])
-            })
-            .collect();
-        assert!(
-            !queued_offsets.contains(&(wram::racer_offset(1) as u16)),
-            "kart slot 1 was already finished and must not appear in the queue"
+fn read_mailbox_word(ram: &[u8]) -> Option<u16> {
+    if wram::MAILBOX_ADDR + 1 >= ram.len() {
+        eprintln!(
+            "writer: read_mailbox_word: out of bounds (addr {:#x}, ram len {:#x})",
+            wram::MAILBOX_ADDR,
+            ram.len()
         );
+        return None;
     }
+    Some(u16::from_le_bytes([ram[wram::MAILBOX_ADDR], ram[wram::MAILBOX_ADDR + 1]]))
+}
 
-    #[test]
-    fn auto_finish_is_idempotent_across_polls() {
-        let mut ram = vec![0u8; wram::WRAM_SIZE];
-        let human_kart_slots = [wram::LOCAL_KART_SLOT];
-        set_current_lap_byte(&mut ram, wram::LOCAL_KART_SLOT, wram::FINISHED_LAP_VALUE);
-
-        let mut finisher = AutoFinisher::new();
-        finisher.poll(&mut ram, &human_kart_slots);
-        let after_first = ram.clone();
-        finisher.poll(&mut ram, &human_kart_slots);
-
-        assert_eq!(ram, after_first, "second poll after done should not touch WRAM again");
-    }
-
-    #[test]
-    fn force_finish_leaves_lap_byte_untouched_when_queue_is_full() {
-        
-        let mut ram = vec![0u8; wram::WRAM_SIZE];
-        let full_count = (FINISH_QUEUE_CAPACITY * 2).to_le_bytes();
-        ram[FINISH_QUEUE_COUNT_ADDR] = full_count[0];
-        ram[FINISH_QUEUE_COUNT_ADDR + 1] = full_count[1];
-
-        let succeeded = force_finish_cpu(&mut ram, 5);
-
-        assert!(!succeeded, "enqueue should fail when the queue is already full");
-        assert_eq!(
-            ram[wram::racer_offset(5) + wram::CURRENT_LAP_OFFSET],
-            0,
-            "lap byte must stay untouched so has_finished() doesn't lie about this CPU"
+pub fn try_queue_item_throw(ram: &mut [u8], kart_slot: u8, item_type: u8, alt_direction: bool) -> bool {
+    if kart_slot == wram::LOCAL_KART_SLOT || kart_slot >= wram::NUM_KART_SLOTS {
+        eprintln!(
+            "writer: try_queue_item_throw: kart_slot {kart_slot} invalid -- must be a REMOTE slot (1..{})",
+            wram::NUM_KART_SLOTS
         );
-        assert!(
-            !has_finished(&ram, 5),
-            "a CPU that failed to enqueue must not look finished to has_finished()"
+        return false;
+    }
+    if !wram::is_valid_item_type(item_type) {
+        eprintln!(
+            "writer: try_queue_item_throw: item_type {item_type} is not a recognized Y-value (expected {}, {}, or {})",
+            wram::ITEM_TYPE_BANANA,
+            wram::ITEM_TYPE_RED_SHELL,
+            wram::ITEM_TYPE_GREEN_SHELL
         );
+        return false;
+    }
+    let Some(word) = read_mailbox_word(ram) else {
+        return false;
+    };
+    if word & wram::ITEM_THROW_REQUEST_SLOT_MASK != 0 {
+        return false;
     }
 
-    #[test]
-    fn auto_finish_retries_a_straggler_once_queue_capacity_frees_up() {
-        
-        let mut ram = vec![0u8; wram::WRAM_SIZE];
-        let human_kart_slots = [wram::LOCAL_KART_SLOT];
-        set_current_lap_byte(&mut ram, wram::LOCAL_KART_SLOT, wram::FINISHED_LAP_VALUE);
+    let new_word = (word & wram::ITEM_THROW_REQUEST_PRESERVE_MASK)
+        | ((kart_slot as u16) << wram::ITEM_THROW_REQUEST_SLOT_SHIFT)
+        | ((item_type as u16) << wram::ITEM_THROW_REQUEST_TYPE_SHIFT)
+        | if alt_direction { wram::ITEM_THROW_DIRECTION_BIT } else { 0 };
+    let bytes = new_word.to_le_bytes();
+    ram[wram::MAILBOX_ADDR] = bytes[0];
+    ram[wram::MAILBOX_ADDR + 1] = bytes[1];
+    true
+}
 
-        let full_count = (FINISH_QUEUE_CAPACITY * 2).to_le_bytes();
-        ram[FINISH_QUEUE_COUNT_ADDR] = full_count[0];
-        ram[FINISH_QUEUE_COUNT_ADDR + 1] = full_count[1];
+#[derive(Default)]
+pub struct LightningWatcher {
+    prev_bit_set: bool,
+}
 
-        let mut finisher = AutoFinisher::new();
-        finisher.poll(&mut ram, &human_kart_slots);
+impl LightningWatcher {
+    pub fn new() -> Self {
+        Self::default()
+    }
 
-        assert!(!finisher.done, "must not report done when every CPU failed to enqueue");
-        for kart_slot in 1..wram::NUM_KART_SLOTS {
-            assert_ne!(
-                ram[wram::racer_offset(kart_slot) + wram::CURRENT_LAP_OFFSET],
-                wram::FINISHED_LAP_VALUE,
-                "kart slot {kart_slot} should not look finished while the queue was full"
+    pub fn poll(&mut self, ram: &[u8]) -> bool {
+        const LIGHTNING_STRIKE_BIT: u8 = 0x08;
+        let cur = ram.get(wram::LIGHTNING_SFX_FLAG_ADDR).copied().unwrap_or(0) & LIGHTNING_STRIKE_BIT != 0;
+        let edge = cur && !self.prev_bit_set;
+        self.prev_bit_set = cur;
+        edge
+    }
+}
+
+pub fn lightning_request_pending(ram: &[u8]) -> bool {
+    read_mailbox_word(ram).is_some_and(|word| word & wram::LIGHTNING_REQUEST_BIT != 0)
+}
+
+pub fn try_queue_lightning_used(ram: &mut [u8], kart_slot: u8) -> bool {
+    if kart_slot == wram::LOCAL_KART_SLOT || kart_slot >= wram::NUM_KART_SLOTS {
+        eprintln!(
+            "writer: try_queue_lightning_used: kart_slot {kart_slot} invalid -- must be a REMOTE slot (1..{})",
+            wram::NUM_KART_SLOTS
+        );
+        return false;
+    }
+    let Some(word) = read_mailbox_word(ram) else {
+        return false;
+    };
+    if word & wram::LIGHTNING_REQUEST_BIT != 0 {
+        return false;
+    }
+
+    let new_word = (word & wram::LIGHTNING_REQUEST_PRESERVE_MASK)
+        | wram::LIGHTNING_REQUEST_BIT
+        | ((kart_slot as u16) << wram::LIGHTNING_SLOT_SHIFT);
+    let bytes = new_word.to_le_bytes();
+    ram[wram::MAILBOX_ADDR] = bytes[0];
+    ram[wram::MAILBOX_ADDR + 1] = bytes[1];
+    true
+}
+
+pub struct PristineTileMap {
+    bytes: Box<[u8; wram::TILE_MAP_SIZE]>,
+    captured: bool,
+}
+
+impl PristineTileMap {
+    pub fn new() -> Self {
+        Self { bytes: Box::new([0; wram::TILE_MAP_SIZE]), captured: false }
+    }
+
+    pub fn capture_once(&mut self, ram: &[u8]) {
+        if self.captured {
+            return;
+        }
+        let end = wram::TILE_MAP_BASE + wram::TILE_MAP_SIZE;
+        if end > ram.len() {
+            eprintln!("PristineTileMap::capture_once: tile map falls outside WRAM, skipping capture");
+            return;
+        }
+        self.bytes.copy_from_slice(&ram[wram::TILE_MAP_BASE..end]);
+        self.captured = true;
+    }
+
+    pub fn get(&self, tile_index: u16) -> u8 {
+        self.bytes[tile_index as usize]
+    }
+}
+
+impl Default for PristineTileMap {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum CollectibleKind {
+    Coin,
+    ItemBox,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct CollectibleTaken {
+    pub tile_index: u16,
+    pub kind: CollectibleKind,
+    pub byte0: u8,
+    pub byte1: Option<u8>,
+}
+
+#[derive(Default)]
+pub struct CollectibleWatcher {
+    prev_tile_index: Option<u16>,
+    prev_tile_type: u8,
+}
+
+impl CollectibleWatcher {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn poll(&mut self, ram: &[u8], pristine: &PristineTileMap) -> Option<CollectibleTaken> {
+        let base = wram::racer_offset(wram::LOCAL_KART_SLOT);
+        let type_addr = base + wram::CURRENT_TILE_TYPE_OFFSET;
+        let index_addr = base + wram::CURRENT_TILE_INDEX_OFFSET;
+        if type_addr >= ram.len() || index_addr + 1 >= ram.len() {
+            eprintln!(
+                "CollectibleWatcher::poll: local racer's tile-type ({type_addr:#x}) or tile-index ({index_addr:#x}) falls outside WRAM, skipping"
             );
+            return None;
         }
 
-        ram[FINISH_QUEUE_COUNT_ADDR] = 0;
-        ram[FINISH_QUEUE_COUNT_ADDR + 1] = 0;
+        let cur_type = ram[type_addr];
+        let cur_index = u16::from_le_bytes([ram[index_addr], ram[index_addr + 1]]);
 
-        finisher.poll(&mut ram, &human_kart_slots);
+        let prev_index = self.prev_tile_index;
+        let prev_type = self.prev_tile_type;
+        self.prev_tile_index = Some(cur_index);
+        self.prev_tile_type = cur_type;
 
-        assert!(finisher.done, "should succeed and report done once queue capacity is available");
-        for kart_slot in 1..wram::NUM_KART_SLOTS {
-            assert_eq!(
-                ram[wram::racer_offset(kart_slot) + wram::CURRENT_LAP_OFFSET],
-                wram::FINISHED_LAP_VALUE,
-                "kart slot {kart_slot} should be force-finished on retry"
+        if prev_index != Some(cur_index) {
+            return None;
+        }
+
+        let kind = if prev_type == wram::SURFACE_COIN && cur_type != wram::SURFACE_COIN {
+            CollectibleKind::Coin
+        } else if prev_type == wram::SURFACE_ITEM_PANEL_UNUSED && cur_type != wram::SURFACE_ITEM_PANEL_UNUSED {
+            CollectibleKind::ItemBox
+        } else {
+            return None;
+        };
+
+        let (read_index, byte1_present) = match kind {
+            CollectibleKind::Coin => (cur_index, false),
+            CollectibleKind::ItemBox => {
+                let old_byte = pristine.get(cur_index);
+                let delta = wram::ITEM_BOX_VRAM_DELTA[(old_byte & 0x03) as usize];
+                (cur_index.wrapping_add(delta as u16), true)
+            }
+        };
+
+        let read_addr = wram::TILE_MAP_BASE + read_index as usize;
+        if read_addr >= ram.len() {
+            eprintln!(
+                "CollectibleWatcher::poll: read_index {read_index} (from racer tile {cur_index}) out of range for tile map (addr {read_addr:#x} >= ram len {:#x}), dropping",
+                ram.len()
             );
+            return None;
+        }
+        let byte0 = ram[read_addr];
+        let byte1 = if byte1_present {
+            let below_addr = read_addr + wram::TILE_MAP_ROW_STRIDE;
+            if below_addr < ram.len() {
+                Some(ram[below_addr])
+            } else {
+                eprintln!(
+                    "CollectibleWatcher::poll: item-box companion tile at {below_addr:#x} out of range, sending byte0 only"
+                );
+                None
+            }
+        } else {
+            None
+        };
+
+        Some(CollectibleTaken { tile_index: cur_index, kind, byte0, byte1 })
+    }
+}
+
+pub fn apply_collectible_tile_bytes(
+    ram: &mut [u8],
+    pristine: &PristineTileMap,
+    tile_index: u16,
+    kind: CollectibleKind,
+    byte0: u8,
+    byte1: Option<u8>,
+) {
+    let tile_addr = wram::TILE_MAP_BASE + tile_index as usize;
+    if tile_addr >= ram.len() {
+        eprintln!(
+            "apply_collectible_tile_bytes: tile_index {tile_index} out of range for tile map (addr {tile_addr:#x} >= ram len {:#x}), dropping",
+            ram.len()
+        );
+        return;
+    }
+
+    if kind == CollectibleKind::Coin {
+        ram[tile_addr] = byte0;
+        return;
+    }
+
+    let old_byte = pristine.get(tile_index);
+    let delta = wram::ITEM_BOX_VRAM_DELTA[(old_byte & 0x03) as usize];
+    let anchor = tile_index.wrapping_add(delta as u16);
+    let bottom_byte = byte1.unwrap_or(byte0);
+
+    let cells: [(u16, u8); 4] = [
+        (anchor, byte0),
+        (anchor.wrapping_add(1), byte0),
+        (anchor.wrapping_add(wram::TILE_MAP_ROW_STRIDE as u16), bottom_byte),
+        (anchor.wrapping_add(wram::TILE_MAP_ROW_STRIDE as u16 + 1), bottom_byte),
+    ];
+    for (idx, byte) in cells {
+        let addr = wram::TILE_MAP_BASE + idx as usize;
+        if addr < ram.len() {
+            ram[addr] = byte;
+        } else {
+            eprintln!("apply_collectible_tile_bytes: item-box footprint cell {idx} (addr {addr:#x}) out of range, skipping that cell");
         }
     }
+}
 
-    #[test]
-    fn auto_finish_reset_allows_a_new_race_to_trigger_again() {
-        let mut ram = vec![0u8; wram::WRAM_SIZE];
-        let human_kart_slots = [wram::LOCAL_KART_SLOT];
-        set_current_lap_byte(&mut ram, wram::LOCAL_KART_SLOT, wram::FINISHED_LAP_VALUE);
-
-        let mut finisher = AutoFinisher::new();
-        finisher.poll(&mut ram, &human_kart_slots);
-        assert!(finisher.done);
-
-        finisher.reset();
-        assert!(!finisher.done);
+pub fn try_apply_collectible_vram_update(
+    ram: &mut [u8],
+    pristine: &PristineTileMap,
+    tile_index: u16,
+    kind: CollectibleKind,
+    _byte0: u8,
+) -> bool {
+    if wram::VRAM_UPDATE_GROUP_ADDR + 1 >= ram.len() {
+        eprintln!("try_apply_collectible_vram_update: VRAM update flag registers out of range, dropping");
+        return true;
     }
 
-    #[test]
-    fn no_humans_tracked_never_triggers_auto_finish() {
-        let mut ram = vec![0u8; wram::WRAM_SIZE];
-        
-        let mut finisher = AutoFinisher::new();
-        finisher.poll(&mut ram, &[]);
-        for kart_slot in 0..wram::NUM_KART_SLOTS {
-            assert_eq!(ram[wram::racer_offset(kart_slot) + wram::CURRENT_LAP_OFFSET], 0);
+    let flag_now = u16::from_le_bytes([ram[wram::VRAM_UPDATE_FLAG_ADDR], ram[wram::VRAM_UPDATE_FLAG_ADDR + 1]]);
+    if flag_now != 0 {
+        return false;
+    }
+
+    let (flag_val, group_val): (u16, u16) = match kind {
+        CollectibleKind::Coin => (tile_index | 0x8000, 0),
+        CollectibleKind::ItemBox => {
+            let old_byte = pristine.get(tile_index);
+            let delta = wram::ITEM_BOX_VRAM_DELTA[(old_byte & 0x03) as usize];
+            (tile_index.wrapping_add(delta as u16), (old_byte & 0x0C) as u16)
         }
-    }
+    };
 
-    #[test]
-    fn hide_pending_remote_slots_z_pins_unreceived_slots_only() {
-        let mut ram = vec![0u8; wram::WRAM_SIZE];
-        let kart_slot = 3u8;
-        let base = wram::racer_offset(kart_slot);
-        ram[base + 0x11] = 0x80;
+    let flag_bytes = flag_val.to_le_bytes();
+    ram[wram::VRAM_UPDATE_FLAG_ADDR] = flag_bytes[0];
+    ram[wram::VRAM_UPDATE_FLAG_ADDR + 1] = flag_bytes[1];
+    let group_bytes = group_val.to_le_bytes();
+    ram[wram::VRAM_UPDATE_GROUP_ADDR] = group_bytes[0];
+    ram[wram::VRAM_UPDATE_GROUP_ADDR + 1] = group_bytes[1];
 
-        let mut mirror = RacerMirrorSocket::new("127.0.0.1:0", "127.0.0.1:0", [0u8; 8]).unwrap();
-        mirror.hide_pending_remote_slots(&mut ram, &[(5u8, kart_slot)]);
-
-        assert_eq!(
-            u16::from_le_bytes([ram[base + wram::Z_POSITION_OFFSET], ram[base + wram::Z_POSITION_OFFSET + 1]]),
-            wram::Z_POSITION_MAX
-        );
-        
-        assert_eq!(ram[base + 0x11], 0x80);
-        assert_ne!(u16::from_le_bytes([ram[base + 0xD2], ram[base + 0xD3]]), REMOVED_SCREEN_NUMBER);
-    }
-
-    #[test]
-    fn hide_pending_remote_slots_skips_slots_already_received_this_race() {
-        let mut ram = vec![0u8; wram::WRAM_SIZE];
-        let kart_slot = 4u8;
-        let base = wram::racer_offset(kart_slot);
-        let z_bytes = 0x1234u16.to_le_bytes();
-        ram[base + wram::Z_POSITION_OFFSET] = z_bytes[0];
-        ram[base + wram::Z_POSITION_OFFSET + 1] = z_bytes[1];
-
-        let mut mirror = RacerMirrorSocket::new("127.0.0.1:0", "127.0.0.1:0", [0u8; 8]).unwrap();
-        mirror.received_this_race.insert(7u8);
-        mirror.hide_pending_remote_slots(&mut ram, &[(7u8, kart_slot)]);
-
-        assert_eq!(
-            u16::from_le_bytes([ram[base + wram::Z_POSITION_OFFSET], ram[base + wram::Z_POSITION_OFFSET + 1]]),
-            0x1234
-        );
-    }
-
-    #[test]
-    fn poll_and_apply_marks_received_and_lets_real_data_override_the_z_pin() {
-        let mut ram = vec![0u8; wram::WRAM_SIZE];
-        let mut slot_map = wram::SlotMap::new();
-        let kart_slot = slot_map.assign(5).unwrap();
-        let base = wram::racer_offset(kart_slot);
-        ram[base + 0x11] = 0x80;
-
-        let mut mirror = RacerMirrorSocket::new("127.0.0.1:0", "127.0.0.1:0", [0u8; 8]).unwrap();
-        mirror.hide_pending_remote_slots(&mut ram, &[(5u8, kart_slot)]);
-        assert_eq!(
-            u16::from_le_bytes([ram[base + wram::Z_POSITION_OFFSET], ram[base + wram::Z_POSITION_OFFSET + 1]]),
-            wram::Z_POSITION_MAX,
-            "sanity: should start Z-pinned"
-        );
-
-        let mut payload = [0x99u8; wram::RACER_STRUCT_SIZE];
-        
-        let real_z = 0x0042u16.to_le_bytes();
-        payload[wram::Z_POSITION_OFFSET] = real_z[0];
-        payload[wram::Z_POSITION_OFFSET + 1] = real_z[1];
-        let packet = encode_packet(5, 1, &payload);
-        mirror.socket.send_to(&packet, mirror.socket.local_addr().unwrap()).unwrap();
-        std::thread::sleep(std::time::Duration::from_millis(20));
-        mirror.poll_and_apply(&mut ram, &slot_map, 0);
-
-        assert_eq!(
-            u16::from_le_bytes([ram[base + wram::Z_POSITION_OFFSET], ram[base + wram::Z_POSITION_OFFSET + 1]]),
-            0x0042,
-            "real incoming Z should have overridden the pin, no separate restore needed"
-        );
-        assert_eq!(ram[base + 0x11], 0x80, "flag byte was never touched, so it's untouched still");
-        assert!(mirror.received_this_race.contains(&5u8));
-
-        mirror.hide_pending_remote_slots(&mut ram, &[(5u8, kart_slot)]);
-        assert_eq!(
-            u16::from_le_bytes([ram[base + wram::Z_POSITION_OFFSET], ram[base + wram::Z_POSITION_OFFSET + 1]]),
-            0x0042,
-            "already-received slot's real Z must not get re-pinned"
-        );
-    }
-
-    #[test]
-    fn packet_roundtrips() {
-        let payload = [0x11u8; wram::RACER_STRUCT_SIZE];
-        let bytes = encode_packet(3, 42, &payload);
-        let decoded = decode_packet(&bytes).expect("should decode");
-        assert_eq!(decoded.server_slot, 3);
-        assert_eq!(decoded.sequence, 42);
-        assert_eq!(decoded.payload, payload.to_vec());
-    }
-
-    #[test]
-    fn decode_rejects_too_short() {
-        assert!(decode_packet(&[b'R', 1, 0]).is_none());
-    }
-
-    #[test]
-    fn decode_rejects_wrong_type() {
-        let mut bytes = encode_packet(0, 0, &[1, 2, 3]);
-        bytes[0] = b'X';
-        assert!(decode_packet(&bytes).is_none());
-    }
-
-    #[test]
-    fn decode_rejects_length_mismatch() {
-        let mut bytes = encode_packet(0, 0, &[1, 2, 3]);
-        
-        bytes[4] = 0;
-        bytes[5] = 99;
-        assert!(decode_packet(&bytes).is_none());
-    }
-
-    #[test]
-    fn sequence_gate_accepts_first_packet_from_a_sender() {
-        let mut gate = SequenceGate::new();
-        assert!(gate.accept(3, 1));
-    }
-
-    #[test]
-    fn sequence_gate_accepts_strictly_increasing() {
-        let mut gate = SequenceGate::new();
-        assert!(gate.accept(3, 1));
-        assert!(gate.accept(3, 2));
-        assert!(gate.accept(3, 10));
-    }
-
-    #[test]
-    fn sequence_gate_rejects_stale_or_duplicate() {
-        let mut gate = SequenceGate::new();
-        assert!(gate.accept(3, 10));
-        assert!(!gate.accept(3, 10));
-        assert!(!gate.accept(3, 5));
-    }
-
-    #[test]
-    fn sequence_gate_tracks_senders_independently() {
-        
-        let mut gate = SequenceGate::new();
-        assert!(gate.accept(1, 100));
-        
-        assert!(gate.accept(2, 1));
-        assert!(gate.accept(2, 2));
-        assert!(!gate.accept(1, 50));
-    }
+    true
 }
